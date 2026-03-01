@@ -501,7 +501,8 @@ function renderActivityChart() {
     const count   = values[i];
     const pct     = Math.max((count / maxVal) * 100, count > 0 ? 8 : 3);
     const isToday = d === today;
-    const label   = new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+    const [dy, dm, dd] = d.split('-').map(Number);
+    const label   = new Date(dy, dm - 1, dd).toLocaleDateString('en-US', { weekday: 'short' });
 
     return `
       <div class="chart-col">
