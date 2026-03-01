@@ -49,8 +49,12 @@
         <span>Rewards</span>
       </button>
       <button class="nav-tab" data-tab="impact">
-        <span class="nav-icon">��</span>
+        <span class="nav-icon">📊</span>
         <span>Impact</span>
+      </button>
+      <button class="nav-tab" data-tab="daily">
+        <span class="nav-icon">📅</span>
+        <span>Daily</span>
       </button>
     </div>
   </nav>
@@ -142,6 +146,31 @@
         <h3 class="card-title">Tasks by Difficulty</h3>
         <div id="difficulty-breakdown"></div>
       </div>
+
+      <!-- Danger Zone -->
+      <div class="danger-zone" style="margin-top: 1.5rem;">
+        <div class="danger-zone-title">⚠️ Danger Zone</div>
+        <div class="danger-zone-desc">Irreversible action — all progress, tasks, rewards and statistics will be permanently deleted.</div>
+        <button class="btn btn-danger-filled" id="reset-progress-btn">🗑️ Reset All Progress</button>
+      </div>
+    </section>
+
+    <!-- DAILY SECTION -->
+    <section class="section" id="section-daily">
+      <div class="section-header">
+        <h2 class="section-title">Daily Quests</h2>
+        <button class="btn btn-primary" id="add-daily-btn">
+          <span>+</span> New Daily
+        </button>
+      </div>
+      <div class="daily-progress-widget" id="daily-progress-widget">
+        <span class="daily-progress-text"><strong id="daily-done-count">0</strong> / <span id="daily-total-count">0</span> done today</span>
+        <div class="daily-progress-bar-wrapper">
+          <div class="daily-progress-bar" id="daily-pbar" style="width:0%"></div>
+        </div>
+        <span class="badge-count" id="daily-streak-badge">🔥 0</span>
+      </div>
+      <div class="task-list" id="daily-tasks-list"></div>
     </section>
 
   </main>
@@ -181,6 +210,10 @@
             <button class="option-btn" data-value="creative">🎨 Creative</button>
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="task-bonus-reward">Bonus Reward <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional)</small></label>
+          <input class="form-input" type="text" id="task-bonus-reward" placeholder="e.g. Ice cream 🍦, 30 min YouTube" maxlength="100" autocomplete="off">
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" id="cancel-task-btn">Cancel</button>
@@ -209,6 +242,18 @@
           <label class="form-label" for="reward-price">Price (coins) *</label>
           <input class="form-input" type="number" id="reward-price" placeholder="e.g. 50" min="1" max="9999">
         </div>
+        <div class="form-group">
+          <label class="form-label" for="reward-timer">Timer Duration <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional, minutes)</small></label>
+          <input class="form-input" type="number" id="reward-timer" placeholder="e.g. 60" min="1" max="600">
+          <div class="timer-presets">
+            <button type="button" class="preset-btn" data-minutes="15">15 min</button>
+            <button type="button" class="preset-btn" data-minutes="30">30 min</button>
+            <button type="button" class="preset-btn" data-minutes="45">45 min</button>
+            <button type="button" class="preset-btn" data-minutes="60">60 min</button>
+            <button type="button" class="preset-btn" data-minutes="90">90 min</button>
+            <button type="button" class="preset-btn" data-minutes="120">120 min</button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" id="cancel-reward-btn">Cancel</button>
@@ -227,8 +272,77 @@
     </div>
   </div>
 
+  <!-- ===== ADD DAILY QUEST MODAL ===== -->
+  <div class="modal-overlay" id="daily-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">📅 New Daily Quest</h3>
+        <button class="modal-close" id="close-daily-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="daily-title">Quest Title *</label>
+          <input class="form-input" type="text" id="daily-title" placeholder="e.g. Morning Workout" maxlength="100" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="daily-desc">Description</label>
+          <textarea class="form-input form-textarea" id="daily-desc" placeholder="Optional description…" maxlength="300"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Difficulty</label>
+          <div class="option-grid" id="daily-difficulty-options">
+            <button class="option-btn active" data-value="easy">🟢 Easy<small>10 XP · 5 🪙</small></button>
+            <button class="option-btn" data-value="medium">🟡 Medium<small>25 XP · 15 🪙</small></button>
+            <button class="option-btn" data-value="hard">🟠 Hard<small>50 XP · 30 🪙</small></button>
+            <button class="option-btn" data-value="epic">🔴 Epic<small>100 XP · 60 🪙</small></button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <div class="option-grid option-grid-5" id="daily-category-options">
+            <button class="option-btn active" data-value="work">💼 Work</button>
+            <button class="option-btn" data-value="study">📚 Study</button>
+            <button class="option-btn" data-value="health">💪 Health</button>
+            <button class="option-btn" data-value="personal">🏠 Personal</button>
+            <button class="option-btn" data-value="creative">🎨 Creative</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-daily-btn">Cancel</button>
+        <button class="btn btn-primary" id="save-daily-btn">Add Daily Quest</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RESET PROGRESS MODAL ===== -->
+  <div class="modal-overlay" id="reset-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">⚠️ Reset All Progress</h3>
+        <button class="modal-close" id="close-reset-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;">
+          Ты уверен? Это действие нельзя отменить. Весь прогресс, задачи, награды и статистика будут удалены.
+        </p>
+        <div class="form-group" style="margin-top:0.5rem;">
+          <label class="form-label" for="reset-confirm">Type <strong style="color:var(--accent-red)">RESET</strong> to confirm</label>
+          <input class="form-input reset-confirm-input" type="text" id="reset-confirm" placeholder="RESET" maxlength="10" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-reset-btn">Cancel</button>
+        <button class="btn btn-danger-filled" id="confirm-reset-btn" disabled>Reset Everything</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== TOAST CONTAINER ===== -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <!-- ===== FLOATING TIMERS ===== -->
+  <div class="timers-container" id="timers-container"></div>
 
   <script src="app.js"></script>
 </body>
