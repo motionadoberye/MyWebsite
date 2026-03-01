@@ -883,3 +883,177 @@ body {
   .rewards-grid { grid-template-columns: 1fr; }
   .option-grid-5 { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ==========================================
+   Danger / Reset Button (filled)
+   ========================================== */
+.btn-danger-filled { background: var(--accent-red); color: white; border: none; }
+.btn-danger-filled:hover {
+  background: #dc2626;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+  transform: translateY(-1px);
+}
+.btn-danger-filled:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* ==========================================
+   Danger Zone (Impact Dashboard)
+   ========================================== */
+.danger-zone {
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  background: rgba(239, 68, 68, 0.05);
+}
+.danger-zone-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-red);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.danger-zone-desc { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }
+
+/* Reset confirm input */
+.reset-confirm-input {
+  font-family: monospace;
+  letter-spacing: 0.15em;
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* ==========================================
+   Timer Presets (Reward Modal)
+   ========================================== */
+.timer-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+.preset-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.preset-btn:hover {
+  border-color: var(--accent-purple);
+  color: var(--text-primary);
+  background: rgba(124, 58, 237, 0.1);
+}
+.preset-btn.active {
+  border-color: var(--accent-purple);
+  background: rgba(124, 58, 237, 0.15);
+  color: var(--accent-purple-light);
+}
+
+/* Timer indicator on reward cards */
+.reward-timer-badge {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+/* ==========================================
+   Floating Timers Widget
+   ========================================== */
+.timers-container {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+  max-width: 280px;
+}
+.timer-widget {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: var(--shadow);
+  pointer-events: all;
+  animation: slideIn 0.3s ease;
+}
+.timer-widget.finished {
+  border-color: var(--accent-green);
+  animation: timerPulse 1s ease infinite;
+}
+@keyframes timerPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  50%       { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+}
+.timer-emoji { font-size: 1.5rem; flex-shrink: 0; }
+.timer-info  { flex: 1; min-width: 0; }
+.timer-title { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timer-time  {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--accent-purple-light);
+  font-variant-numeric: tabular-nums;
+}
+.timer-time.urgent   { color: var(--accent-red); }
+.timer-time.finished { color: var(--accent-green); }
+.timer-time.paused   { color: var(--text-muted); }
+.timer-controls { display: flex; gap: 0.3rem; flex-shrink: 0; }
+
+/* ==========================================
+   Daily Quests
+   ========================================== */
+.daily-progress-widget {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.daily-progress-text { font-size: 0.875rem; font-weight: 500; color: var(--text-secondary); flex-shrink: 0; }
+.daily-progress-text strong { color: var(--text-primary); font-size: 1rem; }
+.daily-progress-bar-wrapper {
+  flex: 1;
+  min-width: 80px;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.daily-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-green), var(--accent-green-light));
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+/* Completed daily task styling */
+.done-today { opacity: 0.55; }
+.done-today .task-title { color: var(--text-muted); }
+
+/* Bonus reward badge on quest cards */
+.badge-bonus-reward {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--coin-color);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
