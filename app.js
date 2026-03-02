@@ -48,6 +48,11 @@ const DIFFICULTY_COLORS = {
   epic:   'var(--accent-red)',
 };
 
+// Psychological mechanics constants
+const DEBT_PAYOFF_XP_BONUS = 10;   // XP awarded when balance crosses from negative to zero
+const INFLATION_INCREMENT  = 0.5;  // Price multiplier added per cheat-penalty press
+const MS_PER_DAY           = 86400000; // Milliseconds in one day
+
 // ==========================================
 // Application State
 // ==========================================
@@ -76,6 +81,23 @@ let state = {
     lastBonusDate:        null,  // 'YYYY-MM-DD' to prevent double bonus
   },
   activeTimers: [],  // countdown timers for timed rewards
+  // ── Psychological mechanics ──
+  inflationData: {
+    multiplier:     1.0,   // current price multiplier (1 = no inflation, 1.5 = +50%, etc.)
+    activatedDate:  null,  // 'YYYY-MM-DD' last activation date (reset at midnight)
+    timesActivated: 0,     // total times ever activated
+    maxMultiplier:  1.0,   // historical maximum multiplier
+  },
+  integrityData: {
+    currentStreak:  0,     // consecutive days without cheating
+    bestStreak:     0,     // record high streak
+    timesReset:     0,     // how many times streak was manually reset
+    lastUpdateDate: null,  // 'YYYY-MM-DD' when streak was last auto-incremented
+  },
+  debtStats: {
+    timesWentNegative: 0,  // how many times balance dropped below 0
+    biggestDebt:       0,  // absolute value of deepest negative balance
+  },
 };
 
 // ==========================================
@@ -93,6 +115,9 @@ function saveState() {
   localStorage.setItem('qm_dailyTasks',       JSON.stringify(state.dailyTasks));
   localStorage.setItem('qm_dailyStats',       JSON.stringify(state.dailyStats));
   localStorage.setItem('qm_activeTimers',     JSON.stringify(state.activeTimers));
+  localStorage.setItem('qm_inflationData',    JSON.stringify(state.inflationData));
+  localStorage.setItem('qm_integrityData',    JSON.stringify(state.integrityData));
+  localStorage.setItem('qm_debtStats',        JSON.stringify(state.debtStats));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -115,6 +140,16 @@ function loadState() {
 
   const savedDailyStats = parse('qm_dailyStats', null);
   if (savedDailyStats) state.dailyStats = { ...state.dailyStats, ...savedDailyStats };
+
+  // Load new psychological mechanics data (backward-compatible with existing saves)
+  const savedInflation = parse('qm_inflationData', null);
+  if (savedInflation) state.inflationData = { ...state.inflationData, ...savedInflation };
+
+  const savedIntegrity = parse('qm_integrityData', null);
+  if (savedIntegrity) state.integrityData = { ...state.integrityData, ...savedIntegrity };
+
+  const savedDebt = parse('qm_debtStats', null);
+  if (savedDebt) state.debtStats = { ...state.debtStats, ...savedDebt };
 }
 
 // ==========================================
@@ -239,10 +274,14 @@ function completeTask(taskId) {
   state.completedTasks.unshift(task);
 
   // Award XP and coins
-  const diff = DIFFICULTY[task.difficulty];
+  const diff           = DIFFICULTY[task.difficulty];
+  const previousCoins  = state.userStats.coins;
   addXP(diff.xp);
   state.userStats.coins            += diff.coins;
   state.userStats.totalCoinsEarned += diff.coins;
+
+  // Detect debt payoff (balance crossed from negative to non-negative)
+  checkDebtPayoff(previousCoins);
 
   // Record in activity log
   const today = todayStr();
@@ -254,6 +293,7 @@ function completeTask(taskId) {
   renderCompletedTasks();
   updateHeader();
   updateCompletedCount();
+  updateDebtWarning();
   showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
 
   // Show bonus reward notification if the quest had one
@@ -301,22 +341,37 @@ function deleteReward(rewardId) {
   renderRewards();
 }
 
-/** Purchase a reward — deduct coins and record history */
+/** Calculate inflation-adjusted price for a reward */
+function getInflatedPrice(basePrice) {
+  return Math.ceil(basePrice * state.inflationData.multiplier);
+}
+
+/** Purchase a reward — deduct coins (allows negative balance) and record history */
 function buyReward(rewardId) {
   const reward = state.rewards.find(r => r.id === rewardId);
   if (!reward) return;
 
-  if (state.userStats.coins < reward.price) {
-    showToast(`Not enough coins! Need ${reward.price} 🪙`, 'error');
-    return;
-  }
+  const effectivePrice = getInflatedPrice(reward.price);
+  const previousCoins  = state.userStats.coins;
 
-  state.userStats.coins -= reward.price;
+  state.userStats.coins -= effectivePrice;
+
+  // Track debt statistics
+  if (previousCoins >= 0 && state.userStats.coins < 0) {
+    state.debtStats.timesWentNegative++;
+  }
+  if (state.userStats.coins < 0) {
+    const debtAbs = Math.abs(state.userStats.coins);
+    if (debtAbs > state.debtStats.biggestDebt) {
+      state.debtStats.biggestDebt = debtAbs;
+    }
+  }
 
   const purchase = {
     ...reward,
     purchaseId:  `p-${Date.now()}`,
     purchasedAt: new Date().toISOString(),
+    pricePaid:   effectivePrice,
   };
   state.purchasedRewards.unshift(purchase);
 
@@ -324,7 +379,13 @@ function buyReward(rewardId) {
   renderRewards();
   renderPurchasedRewards();
   updateHeader();
-  showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${reward.price} 🪙`, 'success');
+  updateDebtWarning();
+
+  if (state.userStats.coins < 0) {
+    showToast(`💳 Куплено в кредит: "${escapeHtml(reward.title)}" ${reward.emoji}. Баланс: ${state.userStats.coins} 🪙`, 'warning');
+  } else {
+    showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${effectivePrice} 🪙`, 'success');
+  }
 
   // Start countdown timer if the reward has one
   if (reward.timerMinutes) {
@@ -336,7 +397,7 @@ function buyReward(rewardId) {
 // Render — Header
 // ==========================================
 
-/** Sync header level badge, XP bar, and coin display */
+/** Sync header level badge, XP bar, coin display, and integrity streak */
 function updateHeader() {
   const { level, xp, coins } = state.userStats;
   const required = xpForLevel(level);
@@ -345,7 +406,25 @@ function updateHeader() {
   document.getElementById('header-level').textContent = level;
   document.getElementById('xp-bar').style.width       = `${pct}%`;
   document.getElementById('xp-text').textContent      = `${xp} / ${required} XP`;
-  document.getElementById('header-coins').textContent  = coins;
+
+  const coinsEl   = document.getElementById('header-coins');
+  const coinBadge = document.getElementById('coin-badge');
+  coinsEl.textContent = coins;
+
+  // Negative balance — red + pulsation
+  if (coins < 0) {
+    coinsEl.classList.add('coin-negative');
+    if (coinBadge) coinBadge.classList.add('coin-badge-negative');
+  } else {
+    coinsEl.classList.remove('coin-negative');
+    if (coinBadge) coinBadge.classList.remove('coin-badge-negative');
+  }
+
+  // Update integrity streak badge
+  const iconEl  = document.getElementById('integrity-icon');
+  const countEl = document.getElementById('integrity-count');
+  if (iconEl)  iconEl.textContent  = getIntegrityIcon(state.integrityData.currentStreak);
+  if (countEl) countEl.textContent = state.integrityData.currentStreak;
 }
 
 // ==========================================
@@ -447,17 +526,38 @@ function renderRewards() {
     return;
   }
 
-  container.innerHTML = state.rewards.map(r => `
+  const multiplier = state.inflationData.multiplier;
+  const isInflated = multiplier > 1.0;
+
+  container.innerHTML = state.rewards.map(r => {
+    const basePrice     = r.price;
+    const effectivePrice = getInflatedPrice(basePrice);
+    const canAfford     = state.userStats.coins >= effectivePrice;
+
+    // Price display: show crossed-out original + inflated when inflation is active
+    const priceHtml = isInflated
+      ? `<div class="reward-price">
+           <span class="reward-price-original">🪙 ${basePrice}</span>
+           <span class="reward-price-inflated">🪙 ${effectivePrice} <small>📈+${Math.round((multiplier - 1) * 100)}%</small></span>
+         </div>`
+      : `<div class="reward-price"><span>🪙</span> ${basePrice}</div>`;
+
+    // Buy button: green when affordable, orange "on credit" when not
+    const buyLabel = canAfford ? 'Купить' : '💳 В кредит';
+    const buyClass = canAfford ? 'btn-green' : 'btn-credit';
+
+    return `
     <div class="reward-card">
       <span class="reward-emoji">${escapeHtml(r.emoji)}</span>
       <div class="reward-title">${escapeHtml(r.title)}</div>
       ${r.timerMinutes ? `<div class="reward-timer-badge">⏱️ ${r.timerMinutes} min timer</div>` : ''}
-      <div class="reward-price"><span>🪙</span> ${r.price}</div>
+      ${priceHtml}
       <div class="reward-actions">
-        <button class="btn btn-green btn-sm" data-action="buy" data-id="${r.id}">Buy</button>
+        <button class="btn ${buyClass} btn-sm" data-action="buy" data-id="${r.id}">${buyLabel}</button>
         <button class="btn btn-danger btn-sm" data-action="del-reward" data-id="${r.id}" title="Remove reward">✕</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   container.querySelectorAll('[data-action="buy"]').forEach(btn => {
     btn.addEventListener('click', () => buyReward(btn.dataset.id));
@@ -465,6 +565,10 @@ function renderRewards() {
   container.querySelectorAll('[data-action="del-reward"]').forEach(btn => {
     btn.addEventListener('click', () => deleteReward(btn.dataset.id));
   });
+
+  // Keep the inflation banner and debt warning in sync
+  updateInflationBanner();
+  updateDebtWarning();
 }
 
 function renderPurchasedRewards() {
@@ -493,7 +597,7 @@ function renderPurchasedRewards() {
             <div class="purchased-date">${dateLabel}</div>
           </div>
         </div>
-        <div class="purchased-price">-${r.price} 🪙</div>
+        <div class="purchased-price">-${r.pricePaid || r.price} 🪙</div>
       </div>`;
   }).join('');
 }
@@ -514,6 +618,14 @@ function renderImpact() {
   document.getElementById('stat-best-streak').textContent  = state.userStats.bestStreak;
   document.getElementById('stat-xp').textContent           = state.userStats.totalXpEarned;
   document.getElementById('stat-coins-earned').textContent = state.userStats.totalCoinsEarned;
+
+  // Psychological mechanics stats
+  document.getElementById('stat-integrity-streak').textContent = state.integrityData.currentStreak;
+  document.getElementById('stat-integrity-best').textContent   = state.integrityData.bestStreak;
+  document.getElementById('stat-integrity-resets').textContent = state.integrityData.timesReset;
+  document.getElementById('stat-times-negative').textContent   = state.debtStats.timesWentNegative;
+  document.getElementById('stat-biggest-debt').textContent     = state.debtStats.biggestDebt;
+  document.getElementById('stat-times-inflated').textContent   = state.inflationData.timesActivated;
 
   renderActivityChart();
   renderCategoryBreakdown();
@@ -819,6 +931,242 @@ function escapeHtml(str) {
 }
 
 // ==========================================
+// Psychological Mechanics — Shared Helpers
+// ==========================================
+
+/**
+ * Check if the user just paid off their debt (balance crossed from negative to non-negative).
+ * Awards DEBT_PAYOFF_XP_BONUS XP and shows a celebration toast.
+ * @param {number} previousCoins - Coin balance before the change
+ */
+function checkDebtPayoff(previousCoins) {
+  if (previousCoins < 0 && state.userStats.coins >= 0) {
+    addXP(DEBT_PAYOFF_XP_BONUS);
+    saveState();
+    updateHeader();
+    setTimeout(() => showToast(`🎉 Долг погашен! Ты свободен! +${DEBT_PAYOFF_XP_BONUS} XP`, 'success'), 300);
+  }
+}
+
+/** Update the debt-warning banner and progress bar in the rewards section */
+function updateDebtWarning() {
+  const debtWarning = document.getElementById('debt-warning');
+  const debtBar     = document.getElementById('debt-bar');
+  const debtLabel   = document.getElementById('debt-bar-label');
+  if (!debtWarning) return;
+
+  if (state.userStats.coins < 0) {
+    debtWarning.style.display = 'block';
+    const debtAmt  = Math.abs(state.userStats.coins);
+    const maxRef   = Math.max(debtAmt, state.debtStats.biggestDebt, 1);
+    const pct      = Math.min((debtAmt / maxRef) * 100, 100);
+    if (debtBar)   debtBar.style.width = `${pct}%`;
+    if (debtLabel) debtLabel.textContent = `Долг: ${debtAmt} 🪙 (до нуля: ${debtAmt})`;
+  } else {
+    debtWarning.style.display = 'none';
+  }
+}
+
+/** Show or hide the inflation banner based on current multiplier */
+function updateInflationBanner() {
+  const banner = document.getElementById('inflation-banner');
+  if (!banner) return;
+
+  if (state.inflationData.multiplier > 1.0) {
+    const pctIncrease = Math.round((state.inflationData.multiplier - 1) * 100);
+    banner.style.display = 'block';
+    const pctEl = document.getElementById('inflation-pct');
+    if (pctEl) pctEl.textContent = pctIncrease;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// ==========================================
+// Mechanic 2 — Laziness Inflation
+// ==========================================
+
+/**
+ * Check if inflation should be reset (date has changed since last activation).
+ * Called on every page load.
+ */
+function checkInflationReset() {
+  const today = todayStr();
+  if (state.inflationData.activatedDate && state.inflationData.activatedDate !== today) {
+    state.inflationData.multiplier    = 1.0;
+    state.inflationData.activatedDate = null;
+    saveState();
+  }
+}
+
+/** Apply +50% price inflation (stacks per click, resets at midnight) */
+function applyCheatPenalty() {
+  const today = todayStr();
+  // Add INFLATION_INCREMENT per press (rounded to avoid floating point drift)
+  const precision = Math.round(1 / INFLATION_INCREMENT);
+  state.inflationData.multiplier    = Math.round((state.inflationData.multiplier + INFLATION_INCREMENT) * precision) / precision;
+  state.inflationData.activatedDate = today;
+  state.inflationData.timesActivated++;
+  if (state.inflationData.multiplier > state.inflationData.maxMultiplier) {
+    state.inflationData.maxMultiplier = state.inflationData.multiplier;
+  }
+
+  // Cheat penalty also resets integrity streak
+  doResetIntegrityStreak();
+
+  saveState();
+  renderRewards();
+  updateHeader();
+
+  const pct = Math.round((state.inflationData.multiplier - 1) * 100);
+  showToast(`📈 Инфляция! +${pct}% к ценам до полуночи. Стрик сброшен.`, 'warning');
+}
+
+/** Initialise the Cheat Penalty confirmation modal */
+function initCheatPenaltyModal() {
+  const penaltyBtn  = document.getElementById('cheat-penalty-btn');
+  const modal       = document.getElementById('cheat-penalty-modal');
+  const closeBtn    = document.getElementById('close-cheat-penalty-modal');
+  const cancelBtn   = document.getElementById('cancel-cheat-penalty-btn');
+  const confirmBtn  = document.getElementById('confirm-cheat-penalty-btn');
+  const infoEl      = document.getElementById('cheat-penalty-info');
+
+  penaltyBtn.addEventListener('click', () => {
+    const currentPct = Math.round((state.inflationData.multiplier - 1) * 100);
+    const nextPct    = Math.round((state.inflationData.multiplier + 0.5 - 1) * 100);
+    if (infoEl) {
+      infoEl.textContent = currentPct > 0
+        ? `Текущая инфляция: +${currentPct}%. После нажатия станет: +${nextPct}%.`
+        : '';
+    }
+    openModal('cheat-penalty-modal');
+  });
+
+  confirmBtn.addEventListener('click', () => {
+    applyCheatPenalty();
+    closeModal('cheat-penalty-modal');
+  });
+
+  closeBtn.addEventListener('click',  () => closeModal('cheat-penalty-modal'));
+  cancelBtn.addEventListener('click', () => closeModal('cheat-penalty-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('cheat-penalty-modal');
+  });
+}
+
+// ==========================================
+// Mechanic 3 — Integrity Streak
+// ==========================================
+
+/** Return the emoji icon(s) for a given integrity streak length */
+function getIntegrityIcon(days) {
+  if (days >= 100) return '💎🔥';
+  if (days >= 30)  return '⭐🔥';
+  if (days >= 14)  return '🔥🔥🔥';
+  if (days >= 7)   return '🔥🔥';
+  return '🔥';
+}
+
+/** Return a motivational milestone message for a given streak milestone */
+function getStreakMilestoneMessage(days) {
+  const msgs = {
+    3:   '🔥 3 дня без читерства! Отличное начало!',
+    7:   '🔥🔥 Целая неделя честности! Потрясающе!',
+    14:  '🔥🔥🔥 2 недели! Ты непобедим!',
+    30:  '⭐🔥 30 дней! Месяц честного прогресса! 🏆',
+    60:  '⭐🔥 60 дней! Ты настоящая легенда!',
+    100: '💎🔥 100 ДНЕЙ БЕЗ ЧИТЕРСТВА! 💎 Ты — образец честности!',
+  };
+  return msgs[days] || `🔥 ${days} дней без читерства!`;
+}
+
+/**
+ * Auto-increment integrity streak for each new day since the last update.
+ * Called on every page load before rendering.
+ */
+function updateIntegrityStreakForNewDay() {
+  const today = todayStr();
+
+  if (state.integrityData.lastUpdateDate === null) {
+    // First-ever launch — initialise
+    state.integrityData.lastUpdateDate = today;
+    saveState();
+    return;
+  }
+
+  if (state.integrityData.lastUpdateDate === today) return;  // already updated today
+
+  const lastDate  = new Date(state.integrityData.lastUpdateDate);
+  const todayDate = new Date(today);
+  const diffDays  = Math.round((todayDate - lastDate) / MS_PER_DAY);
+
+  if (diffDays > 0) {
+    const oldStreak = state.integrityData.currentStreak;
+    state.integrityData.currentStreak  += diffDays;
+    state.integrityData.lastUpdateDate  = today;
+
+    if (state.integrityData.currentStreak > state.integrityData.bestStreak) {
+      state.integrityData.bestStreak = state.integrityData.currentStreak;
+    }
+
+    // Check milestone notifications (show once per milestone crossing)
+    const milestones = [3, 7, 14, 30, 60, 100];
+    milestones.forEach(m => {
+      if (oldStreak < m && state.integrityData.currentStreak >= m) {
+        setTimeout(() => showToast(getStreakMilestoneMessage(m), 'success'), 800);
+      }
+    });
+
+    saveState();
+  }
+}
+
+/** Internal: reset streak counter and record the event (no side effects) */
+function doResetIntegrityStreak() {
+  state.integrityData.currentStreak  = 0;
+  state.integrityData.timesReset++;
+  state.integrityData.lastUpdateDate = todayStr();
+}
+
+/** Trigger a brief red flash on the whole screen */
+function flashScreenRed() {
+  const overlay = document.getElementById('red-flash-overlay');
+  if (!overlay) return;
+  overlay.classList.add('active');
+  setTimeout(() => overlay.classList.remove('active'), 700);
+}
+
+/** Initialise the "I Cheated" streak-reset modal */
+function initStreakResetModal() {
+  const iCheatedBtn  = document.getElementById('i-cheated-btn');
+  const modal        = document.getElementById('streak-reset-modal');
+  const closeBtn     = document.getElementById('close-streak-reset-modal');
+  const cancelBtn    = document.getElementById('cancel-streak-reset-btn');
+  const confirmBtn   = document.getElementById('confirm-streak-reset-btn');
+  const daysEl       = document.getElementById('streak-reset-days');
+
+  iCheatedBtn.addEventListener('click', () => {
+    if (daysEl) daysEl.textContent = state.integrityData.currentStreak;
+    openModal('streak-reset-modal');
+  });
+
+  confirmBtn.addEventListener('click', () => {
+    doResetIntegrityStreak();
+    saveState();
+    updateHeader();
+    closeModal('streak-reset-modal');
+    flashScreenRed();
+    setTimeout(() => showToast('Стрик сброшен. Начни заново! 💪', 'warning'), 500);
+  });
+
+  closeBtn.addEventListener('click',  () => closeModal('streak-reset-modal'));
+  cancelBtn.addEventListener('click', () => closeModal('streak-reset-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('streak-reset-modal');
+  });
+}
+
+// ==========================================
 // Countdown Timer System (Features 4 & 5)
 // ==========================================
 
@@ -1021,10 +1369,14 @@ function completeDailyTask(taskId) {
   task.completedDate = today;
 
   // Award XP and coins
-  const diff = DIFFICULTY[task.difficulty];
+  const diff          = DIFFICULTY[task.difficulty];
+  const previousCoins = state.userStats.coins;
   addXP(diff.xp);
   state.userStats.coins            += diff.coins;
   state.userStats.totalCoinsEarned += diff.coins;
+
+  // Detect debt payoff
+  checkDebtPayoff(previousCoins);
 
   // Record in activity log
   state.activityLog[today] = (state.activityLog[today] || 0) + 1;
@@ -1034,6 +1386,7 @@ function completeDailyTask(taskId) {
   renderDailyTasks();
   updateDailyProgress();
   updateHeader();
+  updateDebtWarning();
   showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
 
   // Check for all-completed bonus
@@ -1065,7 +1418,7 @@ function checkDailyCompletionBonus() {
     const last = state.dailyStats.lastAllCompletedDate;
     if (last) {
       const diffDays = Math.round(
-        (new Date(today) - new Date(last)) / (1000 * 60 * 60 * 24)
+        (new Date(today) - new Date(last)) / MS_PER_DAY
       );
       state.dailyStats.dailyStreak = diffDays === 1
         ? state.dailyStats.dailyStreak + 1
@@ -1256,6 +1609,7 @@ function initResetModal() {
     const keys = [
       'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
       'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats', 'qm_activeTimers',
+      'qm_inflationData', 'qm_integrityData', 'qm_debtStats',
     ];
     keys.forEach(k => localStorage.removeItem(k));
     location.reload();
@@ -1274,7 +1628,9 @@ function initResetModal() {
 
 function init() {
   loadState();
-  resetDailyTasksIfNewDay();  // Check and reset daily tasks if a new day has begun
+  resetDailyTasksIfNewDay();     // Check and reset daily tasks if a new day has begun
+  checkInflationReset();         // Reset inflation if date has changed
+  updateIntegrityStreakForNewDay(); // Auto-increment integrity streak for new day(s)
   updateHeader();
   renderActiveTasks();
   renderCompletedTasks();
@@ -1284,11 +1640,15 @@ function init() {
   renderDailyTasks();
   updateDailyProgress();
   renderImpact();
+  updateDebtWarning();
+  updateInflationBanner();
   initNav();
   initTaskModal();
   initRewardModal();
   initDailyModal();
   initResetModal();
+  initCheatPenaltyModal();
+  initStreakResetModal();
 
   // Restore persisted timers and start the tick loop if any are active
   if (state.activeTimers.length > 0) {
@@ -1308,6 +1668,8 @@ function init() {
       closeModal('reward-modal');
       closeModal('daily-modal');
       closeModal('reset-modal');
+      closeModal('cheat-penalty-modal');
+      closeModal('streak-reset-modal');
     }
   });
 }

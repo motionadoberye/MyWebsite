@@ -29,10 +29,17 @@
           </div>
           <span class="xp-text" id="xp-text">0 / 100 XP</span>
         </div>
-        <div class="coin-badge">
+        <div class="coin-badge" id="coin-badge">
           <span class="coin-icon">🪙</span>
           <span class="coin-amount" id="header-coins">0</span>
         </div>
+        <!-- ===== INTEGRITY STREAK BADGE ===== -->
+        <div class="integrity-badge" id="integrity-badge" title="Integrity Streak — days without cheating">
+          <span id="integrity-icon">🔥</span>
+          <span id="integrity-count">0</span>
+          <span class="integrity-label-text">days</span>
+        </div>
+        <button class="btn-cheat-micro" id="i-cheated-btn" title="Я сорвался — сбросить стрик" aria-label="I Cheated">😔</button>
       </div>
     </div>
   </header>
@@ -83,9 +90,20 @@
     <section class="section" id="section-rewards">
       <div class="section-header">
         <h2 class="section-title">Reward Shop</h2>
-        <button class="btn btn-primary" id="add-reward-btn">
-          <span>+</span> New Reward
-        </button>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-cheat-penalty" id="cheat-penalty-btn">⚡ Читерство</button>
+          <button class="btn btn-primary" id="add-reward-btn"><span>+</span> New Reward</button>
+        </div>
+      </div>
+      <!-- Inflation Banner -->
+      <div class="inflation-banner" id="inflation-banner" style="display:none;">
+        🔥 ИНФЛЯЦИЯ АКТИВНА — цены повышены на <span id="inflation-pct">50</span>% до полуночи
+      </div>
+      <!-- Debt Warning -->
+      <div class="debt-warning" id="debt-warning" style="display:none;">
+        <div class="debt-warning-text">🔻 Ты в долгу! Выполняй задачи, чтобы вернуться в ноль</div>
+        <div class="debt-bar-wrapper"><div class="debt-bar" id="debt-bar"></div></div>
+        <div class="debt-bar-label" id="debt-bar-label"></div>
       </div>
       <div class="rewards-grid" id="rewards-list"></div>
 
@@ -129,6 +147,39 @@
           <div class="stat-icon">🪙</div>
           <div class="stat-value" id="stat-coins-earned">0</div>
           <div class="stat-label">Total Coins Earned</div>
+        </div>
+        <!-- Integrity Streak Stats -->
+        <div class="stat-card">
+          <div class="stat-icon">🔥</div>
+          <div class="stat-value" id="stat-integrity-streak">0</div>
+          <div class="stat-label">Integrity Streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💎</div>
+          <div class="stat-value" id="stat-integrity-best">0</div>
+          <div class="stat-label">Best Integrity Streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">😔</div>
+          <div class="stat-value" id="stat-integrity-resets">0</div>
+          <div class="stat-label">Times Cheated</div>
+        </div>
+        <!-- Debt Stats -->
+        <div class="stat-card">
+          <div class="stat-icon">🔻</div>
+          <div class="stat-value" id="stat-times-negative">0</div>
+          <div class="stat-label">Times in Debt</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💀</div>
+          <div class="stat-value" id="stat-biggest-debt">0</div>
+          <div class="stat-label">Biggest Debt</div>
+        </div>
+        <!-- Inflation Stats -->
+        <div class="stat-card">
+          <div class="stat-icon">📈</div>
+          <div class="stat-value" id="stat-times-inflated">0</div>
+          <div class="stat-label">Times Inflated</div>
         </div>
       </div>
 
@@ -337,6 +388,48 @@
       </div>
     </div>
   </div>
+
+  <!-- ===== CHEAT PENALTY MODAL ===== -->
+  <div class="modal-overlay" id="cheat-penalty-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">⚡ Штраф за читерство</h3>
+        <button class="modal-close" id="close-cheat-penalty-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;">
+          Ты читерил? Монеты не спишутся, но <strong>ВСЕ цены в магазине вырастут на 50%</strong> до конца дня. Честность — это достоинство! 💪
+        </p>
+        <p id="cheat-penalty-info" style="color:var(--accent-orange);font-size:0.85rem;margin-top:0.5rem;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-cheat-penalty-btn">Отмена</button>
+        <button class="btn btn-cheat-penalty-confirm" id="confirm-cheat-penalty-btn">Да, я читерил 😔</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STREAK RESET (I CHEATED) MODAL ===== -->
+  <div class="modal-overlay" id="streak-reset-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">😔 Я сорвался</h3>
+        <button class="modal-close" id="close-streak-reset-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.6;">
+          Ты уверен? Твой стрик в <strong id="streak-reset-days">0</strong> дней будет сброшен. Это больно, но честность — это сила.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-streak-reset-btn">Отмена</button>
+        <button class="btn btn-danger-filled" id="confirm-streak-reset-btn">Сбросить стрик</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RED FLASH OVERLAY (streak reset animation) ===== -->
+  <div class="red-flash-overlay" id="red-flash-overlay"></div>
 
   <!-- ===== TOAST CONTAINER ===== -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>

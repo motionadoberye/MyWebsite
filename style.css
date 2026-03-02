@@ -154,6 +154,13 @@ body {
   border-radius: 8px;
   padding: 0.25rem 0.6rem;
   flex-shrink: 0;
+  transition: var(--transition);
+}
+
+/* Negative balance styling */
+.coin-badge.coin-badge-negative {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .coin-icon { font-size: 1rem; }
@@ -162,6 +169,59 @@ body {
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--coin-color);
+  transition: color 0.3s ease;
+}
+
+/* Negative coin amount — red + pulse */
+.coin-amount.coin-negative {
+  color: var(--accent-red);
+  animation: coinPulse 1.5s ease infinite;
+}
+
+@keyframes coinPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* ==========================================
+   Integrity Streak Badge (header)
+   ========================================== */
+.integrity-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
+  padding: 0.25rem 0.6rem;
+  flex-shrink: 0;
+  cursor: default;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-green-light);
+  white-space: nowrap;
+}
+
+.integrity-badge #integrity-icon { font-size: 0.9rem; }
+.integrity-badge #integrity-count { font-size: 0.9rem; font-weight: 800; }
+.integrity-label-text { font-size: 0.65rem; font-weight: 500; opacity: 0.8; }
+
+/* Small "I Cheated" button in header */
+.btn-cheat-micro {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.btn-cheat-micro:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--accent-red);
 }
 
 /* ==========================================
@@ -1056,4 +1116,187 @@ body {
   background: rgba(251, 191, 36, 0.12);
   color: var(--coin-color);
   border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+/* ==========================================
+   Cheat Penalty Button (rewards section)
+   ========================================== */
+.btn-cheat-penalty {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-yellow);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-cheat-penalty:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: var(--accent-yellow);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Confirm cheat penalty button inside modal */
+.btn-cheat-penalty-confirm {
+  background: var(--accent-orange);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-cheat-penalty-confirm:hover {
+  background: #ea6c00;
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+  transform: translateY(-1px);
+}
+
+/* ==========================================
+   Buy on Credit button (reward cards)
+   ========================================== */
+.btn-credit {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-yellow);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.btn-credit:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: var(--accent-yellow);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+}
+
+/* ==========================================
+   Inflation Banner
+   ========================================== */
+.inflation-banner {
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: var(--radius);
+  padding: 0.65rem 1rem;
+  margin-bottom: 1rem;
+  color: var(--accent-orange);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  animation: inflationPulse 2s ease infinite;
+}
+
+@keyframes inflationPulse {
+  0%, 100% { border-color: rgba(249, 115, 22, 0.35); }
+  50%       { border-color: rgba(249, 115, 22, 0.7); box-shadow: 0 0 12px rgba(249, 115, 22, 0.2); }
+}
+
+/* ==========================================
+   Debt Warning
+   ========================================== */
+.debt-warning {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.debt-warning-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-red);
+  margin-bottom: 0.5rem;
+}
+
+.debt-bar-wrapper {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+
+.debt-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-red), #ff6b6b);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+  width: 0%;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+
+.debt-bar-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ==========================================
+   Inflated reward price display
+   ========================================== */
+.reward-price-original {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  margin-right: 0.3rem;
+}
+
+.reward-price-inflated {
+  color: var(--accent-orange);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.reward-price-inflated small {
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* ==========================================
+   Red Flash Overlay (streak reset animation)
+   ========================================== */
+.red-flash-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(239, 68, 68, 0.0);
+  z-index: 500;
+  pointer-events: none;
+  transition: none;
+}
+
+.red-flash-overlay.active {
+  animation: redFlash 0.6s ease forwards;
+}
+
+@keyframes redFlash {
+  0%   { background: rgba(239, 68, 68, 0.0); }
+  20%  { background: rgba(239, 68, 68, 0.35); }
+  100% { background: rgba(239, 68, 68, 0.0); }
+}
+
+/* ==========================================
+   Responsive adjustments for new header elements
+   ========================================== */
+@media (max-width: 600px) {
+  .integrity-label-text { display: none; }
+  .btn-cheat-micro { padding: 0.25rem 0.35rem; }
+}
+
+@media (max-width: 420px) {
+  .integrity-badge { display: none; }
+  .btn-cheat-micro { display: none; }
 }
