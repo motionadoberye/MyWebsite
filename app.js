@@ -48,6 +48,11 @@ const DIFFICULTY_COLORS = {
   epic:   'var(--accent-red)',
 };
 
+// Psychological mechanics constants
+const DEBT_PAYOFF_XP_BONUS = 10;   // XP awarded when balance crosses from negative to zero
+const INFLATION_INCREMENT  = 0.5;  // Price multiplier added per cheat-penalty press
+const MS_PER_DAY           = 86400000; // Milliseconds in one day
+
 // ==========================================
 // Application State
 // ==========================================
@@ -336,8 +341,8 @@ function deleteReward(rewardId) {
   renderRewards();
 }
 
-/** Calculate effective (inflation-adjusted) price for a reward */
-function getEffectivePrice(basePrice) {
+/** Calculate inflation-adjusted price for a reward */
+function getInflatedPrice(basePrice) {
   return Math.ceil(basePrice * state.inflationData.multiplier);
 }
 
@@ -346,7 +351,7 @@ function buyReward(rewardId) {
   const reward = state.rewards.find(r => r.id === rewardId);
   if (!reward) return;
 
-  const effectivePrice = getEffectivePrice(reward.price);
+  const effectivePrice = getInflatedPrice(reward.price);
   const previousCoins  = state.userStats.coins;
 
   state.userStats.coins -= effectivePrice;
@@ -526,7 +531,7 @@ function renderRewards() {
 
   container.innerHTML = state.rewards.map(r => {
     const basePrice     = r.price;
-    const effectivePrice = getEffectivePrice(basePrice);
+    const effectivePrice = getInflatedPrice(basePrice);
     const canAfford     = state.userStats.coins >= effectivePrice;
 
     // Price display: show crossed-out original + inflated when inflation is active
@@ -931,15 +936,15 @@ function escapeHtml(str) {
 
 /**
  * Check if the user just paid off their debt (balance crossed from negative to non-negative).
- * Awards +10 XP and shows a celebration toast.
+ * Awards DEBT_PAYOFF_XP_BONUS XP and shows a celebration toast.
  * @param {number} previousCoins - Coin balance before the change
  */
 function checkDebtPayoff(previousCoins) {
   if (previousCoins < 0 && state.userStats.coins >= 0) {
-    addXP(10);
+    addXP(DEBT_PAYOFF_XP_BONUS);
     saveState();
     updateHeader();
-    setTimeout(() => showToast('🎉 Долг погашен! Ты свободен! +10 XP', 'success'), 300);
+    setTimeout(() => showToast(`🎉 Долг погашен! Ты свободен! +${DEBT_PAYOFF_XP_BONUS} XP`, 'success'), 300);
   }
 }
 
@@ -997,8 +1002,9 @@ function checkInflationReset() {
 /** Apply +50% price inflation (stacks per click, resets at midnight) */
 function applyCheatPenalty() {
   const today = todayStr();
-  // Add 0.5 per press (rounded to avoid floating point drift)
-  state.inflationData.multiplier    = Math.round((state.inflationData.multiplier + 0.5) * 10) / 10;
+  // Add INFLATION_INCREMENT per press (rounded to avoid floating point drift)
+  const precision = Math.round(1 / INFLATION_INCREMENT);
+  state.inflationData.multiplier    = Math.round((state.inflationData.multiplier + INFLATION_INCREMENT) * precision) / precision;
   state.inflationData.activatedDate = today;
   state.inflationData.timesActivated++;
   if (state.inflationData.multiplier > state.inflationData.maxMultiplier) {
@@ -1092,7 +1098,7 @@ function updateIntegrityStreakForNewDay() {
 
   const lastDate  = new Date(state.integrityData.lastUpdateDate);
   const todayDate = new Date(today);
-  const diffDays  = Math.round((todayDate - lastDate) / (1000 * 60 * 60 * 24));
+  const diffDays  = Math.round((todayDate - lastDate) / MS_PER_DAY);
 
   if (diffDays > 0) {
     const oldStreak = state.integrityData.currentStreak;
@@ -1412,7 +1418,7 @@ function checkDailyCompletionBonus() {
     const last = state.dailyStats.lastAllCompletedDate;
     if (last) {
       const diffDays = Math.round(
-        (new Date(today) - new Date(last)) / (1000 * 60 * 60 * 24)
+        (new Date(today) - new Date(last)) / MS_PER_DAY
       );
       state.dailyStats.dailyStreak = diffDays === 1
         ? state.dailyStats.dailyStreak + 1
