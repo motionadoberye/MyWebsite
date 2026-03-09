@@ -98,6 +98,14 @@ let state = {
     timesWentNegative: 0,  // how many times balance dropped below 0
     biggestDebt:       0,  // absolute value of deepest negative balance
   },
+  // ── Timer Stats ──
+  timerStats: {
+    completedOnTime:     0,  // tasks completed before deadline
+    completedOverdue:    0,  // tasks completed after deadline
+    penaltyQuestsCreated: 0, // total penalty quests auto-generated
+    penaltyCoinsLost:    0,  // total coins lost via timer penalties
+    bonusCoinsEarned:    0,  // total bonus coins earned for early completion
+  },
 };
 
 // ==========================================
@@ -118,6 +126,7 @@ function saveState() {
   localStorage.setItem('qm_inflationData',    JSON.stringify(state.inflationData));
   localStorage.setItem('qm_integrityData',    JSON.stringify(state.integrityData));
   localStorage.setItem('qm_debtStats',        JSON.stringify(state.debtStats));
+  localStorage.setItem('qm_timerStats',       JSON.stringify(state.timerStats));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -150,6 +159,10 @@ function loadState() {
 
   const savedDebt = parse('qm_debtStats', null);
   if (savedDebt) state.debtStats = { ...state.debtStats, ...savedDebt };
+
+  // Load timer statistics (backward-compatible)
+  const savedTimerStats = parse('qm_timerStats', null);
+  if (savedTimerStats) state.timerStats = { ...state.timerStats, ...savedTimerStats };
 }
 
 // ==========================================
@@ -242,26 +255,212 @@ function recalcStreak() {
 // Task Operations (CRUD)
 // ==========================================
 
+// ==========================================
+// Task Timer Helpers
+// ==========================================
+
+/**
+ * Check if a task's timer has expired.
+ * @param {object} task
+ * @param {number} now - current timestamp (ms)
+ * @returns {boolean}
+ */
+function isTaskOverdue(task, now) {
+  if (!task.timerDurationMs || !task.timerStartTime) return false;
+  const deadline = new Date(task.timerStartTime).getTime() + task.timerDurationMs;
+  return now >= deadline;
+}
+
+/**
+ * Format milliseconds into a human-readable time string for task timers.
+ * e.g. "1д 4ч 23м" for long durations, "45:12" for short ones.
+ */
+function formatTaskTime(ms) {
+  if (ms <= 0) return '0:00';
+  const totalSecs = Math.ceil(ms / 1000);
+  const d  = Math.floor(totalSecs / 86400);
+  const h  = Math.floor((totalSecs % 86400) / 3600);
+  const m  = Math.floor((totalSecs % 3600) / 60);
+  const s  = totalSecs % 60;
+
+  if (d > 0) {
+    // Long format: "1д 4ч 23м"
+    const parts = [];
+    if (d > 0) parts.push(`${d}д`);
+    if (h > 0) parts.push(`${h}ч`);
+    parts.push(`${m}м`);
+    return parts.join(' ');
+  }
+  // Short format: "HH:MM" or "MM:SS"
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Apply the penalty for a task whose timer has expired.
+ * This is idempotent — checks timerExpiredPenaltyApplied flag.
+ * @param {object} task - the task object (in state.tasks)
+ * @param {boolean} showNotification - whether to show a toast
+ */
+function applyTaskPenalty(task, showNotification = true) {
+  if (!task.penalty) return;
+  if (task.timerExpiredPenaltyApplied) return;  // already applied
+
+  task.timerExpiredPenaltyApplied = true;
+  const penalty = task.penalty;
+
+  // Deduct coins
+  if (penalty.coins > 0) {
+    const previousCoins = state.userStats.coins;
+    state.userStats.coins -= penalty.coins;
+    state.timerStats.penaltyCoinsLost += penalty.coins;
+
+    if (previousCoins >= 0 && state.userStats.coins < 0) {
+      state.debtStats.timesWentNegative++;
+    }
+    if (state.userStats.coins < 0) {
+      const debtAbs = Math.abs(state.userStats.coins);
+      if (debtAbs > state.debtStats.biggestDebt) {
+        state.debtStats.biggestDebt = debtAbs;
+      }
+    }
+    if (showNotification) {
+      setTimeout(() => showToast(`💸 Штраф за просрочку: -${penalty.coins} 🪙  "${escapeHtml(task.title)}"`, 'error'), 200);
+    }
+  }
+
+  // Create penalty quest
+  if (penalty.questTitle && penalty.questTitle.trim()) {
+    const penaltyTask = {
+      id:          `task-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title:       penalty.questTitle.trim(),
+      desc:        `⚔️ Штрафной квест за просрочку: "${task.title}"`,
+      difficulty:  penalty.questDifficulty || 'easy',
+      category:    task.category,
+      createdAt:   new Date().toISOString(),
+      isPenaltyQuest: true,
+      timerDurationMs: null,
+      timerStartTime: null,
+      bonus: null,
+      penalty: null,
+      timerExpiredPenaltyApplied: false,
+    };
+    state.tasks.unshift(penaltyTask);
+    state.timerStats.penaltyQuestsCreated++;
+    if (showNotification) {
+      setTimeout(() => showToast(`⚔️ Штрафной квест добавлен: "${escapeHtml(penaltyTask.title)}"`, 'warning'), 600);
+    }
+  }
+}
+
+/**
+ * Check all active tasks for expired timers and apply penalties.
+ * Called on page load and periodically.
+ */
+function checkAndApplyExpiredPenalties() {
+  const now = Date.now();
+  let changed = false;
+
+  state.tasks.forEach(task => {
+    if (!task.isPenaltyQuest && isTaskOverdue(task, now) && !task.timerExpiredPenaltyApplied) {
+      applyTaskPenalty(task, true);
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveState();
+    renderActiveTasks();
+    updateHeader();
+    updateDebtWarning();
+  }
+}
+
+/** Live-update the countdown displays on task cards (no full re-render) */
+let taskTimerInterval = null;
+
+function startTaskTimerTick() {
+  if (taskTimerInterval) return;
+  taskTimerInterval = setInterval(updateTaskTimerDisplays, 1000);
+}
+
+function updateTaskTimerDisplays() {
+  const now = Date.now();
+  let needFullRender = false;
+
+  document.querySelectorAll('.task-timer[data-deadline]').forEach(el => {
+    const deadline  = parseInt(el.dataset.deadline, 10);
+    const duration  = parseInt(el.dataset.duration, 10);
+    const remaining = deadline - now;
+    const overdue   = remaining <= 0;
+    const pctLeft   = Math.max(0, remaining / duration);
+
+    // Check if it just became overdue
+    if (overdue && !el.classList.contains('task-timer-red')) {
+      needFullRender = true;
+      return;
+    }
+
+    if (!overdue) {
+      // Update color class
+      el.classList.remove('task-timer-green', 'task-timer-yellow', 'task-timer-orange', 'task-timer-red');
+      if (pctLeft < 0.25)      el.classList.add('task-timer-orange');
+      else if (pctLeft < 0.50) el.classList.add('task-timer-yellow');
+      else                     el.classList.add('task-timer-green');
+      el.textContent = `⏱️ ${formatTaskTime(remaining)}`;
+    }
+  });
+
+  if (needFullRender) {
+    checkAndApplyExpiredPenalties();
+    renderActiveTasks();
+  }
+}
+
+
+
 /** Build a new task object */
-function createTask(title, desc, difficulty, category, bonusReward) {
+function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty) {
+  const now = new Date().toISOString();
   return {
     id:          `task-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title,
     desc,
     difficulty,
     category,
-    bonusReward: bonusReward || '',  // optional custom reward text
-    createdAt:   new Date().toISOString(),
+    createdAt:   now,
+    // ── Timer ──
+    timerDurationMs: timerDurationMs || null,  // null = no timer
+    timerStartTime:  timerDurationMs ? now : null,
+    // ── Bonus (earned if completed before deadline) ──
+    bonus: timerDurationMs ? {
+      coins:  bonus?.coins  || 0,
+      pct:    bonus?.pct    || 0,
+      custom: bonus?.custom || '',
+    } : null,
+    // ── Penalty (applied when timer expires) ──
+    penalty: timerDurationMs ? {
+      coins:          penalty?.coins          || 0,
+      questTitle:     penalty?.questTitle     || '',
+      questDifficulty: penalty?.questDifficulty || 'easy',
+    } : null,
+    // Status flags
+    timerExpiredPenaltyApplied: false,  // true once penalty is applied
+    isPenaltyQuest: false,              // true for auto-generated penalty tasks
   };
 }
 
 /** Add a new task to the active list */
-function addTask(title, desc, difficulty, category, bonusReward) {
-  const task = createTask(title, desc, difficulty, category, bonusReward);
+function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty) {
+  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty);
   state.tasks.unshift(task);
   saveState();
   renderActiveTasks();
   showToast('Quest added! ⚔️', 'info');
+  // Start task timer tick if this task has a timer
+  if (timerDurationMs) startTaskTimerTick();
 }
 
 /** Mark an active task as complete, award XP + coins */
@@ -288,22 +487,90 @@ function completeTask(taskId) {
   state.activityLog[today] = (state.activityLog[today] || 0) + 1;
   recalcStreak();
 
-  saveState();
-  renderActiveTasks();
-  renderCompletedTasks();
-  updateHeader();
-  updateCompletedCount();
-  updateDebtWarning();
-  showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
+  // ── Timer bonus / penalty logic ──
+  if (task.timerDurationMs && task.timerStartTime) {
+    const deadline = new Date(task.timerStartTime).getTime() + task.timerDurationMs;
+    const now      = Date.now();
+    const isOnTime = now < deadline;
 
-  // Show bonus reward notification if the quest had one
-  if (task.bonusReward) {
-    setTimeout(() => showToast(`🎁 Bonus reward: ${escapeHtml(task.bonusReward)}`, 'success'), 600);
+    if (isOnTime) {
+      // Completed before deadline — award bonus
+      state.timerStats.completedOnTime++;
+      let bonusCoins = 0;
+      const bonus = task.bonus || {};
+
+      // Fixed bonus coins
+      if (bonus.coins > 0) {
+        bonusCoins += bonus.coins;
+      }
+      // Percentage bonus
+      if (bonus.pct > 0) {
+        bonusCoins += Math.round(diff.coins * bonus.pct / 100);
+      }
+      if (bonusCoins > 0) {
+        state.userStats.coins            += bonusCoins;
+        state.userStats.totalCoinsEarned += bonusCoins;
+        state.timerStats.bonusCoinsEarned += bonusCoins;
+      }
+
+      const timeLeft = deadline - now;
+      const timeLeftStr = formatTaskTime(timeLeft);
+      const parts = [];
+      if (bonusCoins > 0)    parts.push(`+${bonusCoins} 🪙 bonus`);
+      if (bonus.pct > 0)     parts.push(`+${bonus.pct}% reward`);
+      if (bonus.custom)      parts.push(`"${escapeHtml(bonus.custom)}"`);
+
+      saveState();
+      renderActiveTasks();
+      renderCompletedTasks();
+      updateHeader();
+      updateCompletedCount();
+      updateDebtWarning();
+      showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
+      setTimeout(() => {
+        showToast(`🔥 Выполнено за ${timeLeftStr} до дедлайна!`, 'success');
+        if (parts.length > 0) {
+          setTimeout(() => showToast(`🎉 Бонус: ${parts.join(' · ')}`, 'success'), 600);
+        }
+        if (bonus.custom) {
+          setTimeout(() => showToast(`🎁 Ты заслужил: ${escapeHtml(bonus.custom)}`, 'success'), 1200);
+        }
+      }, 400);
+    } else {
+      // Completed after deadline — no bonus, penalty may have been applied already
+      state.timerStats.completedOverdue++;
+      // Apply penalty now if it wasn't applied automatically
+      applyTaskPenalty(task, false);
+      saveState();
+      renderActiveTasks();
+      renderCompletedTasks();
+      updateHeader();
+      updateCompletedCount();
+      updateDebtWarning();
+      showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}" (просрочено)`, 'warning');
+    }
+  } else {
+    // No timer — regular completion
+    saveState();
+    renderActiveTasks();
+    renderCompletedTasks();
+    updateHeader();
+    updateCompletedCount();
+    updateDebtWarning();
+    showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
   }
 }
 
 /** Delete a task (active or completed) */
 function deleteTask(taskId, fromCompleted = false) {
+  // Penalty quests cannot be deleted — they must be completed
+  if (!fromCompleted) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (task && task.isPenaltyQuest) {
+      showToast('⚔️ Штрафной квест нельзя удалить — только выполнить!', 'warning');
+      return;
+    }
+  }
   if (fromCompleted) {
     state.completedTasks = state.completedTasks.filter(t => t.id !== taskId);
   } else {
@@ -444,7 +711,19 @@ function renderActiveTasks() {
     return;
   }
 
-  container.innerHTML = state.tasks.map(task => renderTaskItem(task, false)).join('');
+  // Sort: penalty quests first, then overdue, then by creation time
+  const now = Date.now();
+  const sorted = [...state.tasks].sort((a, b) => {
+    const aOverdue = isTaskOverdue(a, now);
+    const bOverdue = isTaskOverdue(b, now);
+    if (a.isPenaltyQuest && !b.isPenaltyQuest) return -1;
+    if (!a.isPenaltyQuest && b.isPenaltyQuest) return 1;
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    return 0;
+  });
+
+  container.innerHTML = sorted.map(task => renderTaskItem(task, false)).join('');
   attachTaskEvents(container, false);
 }
 
@@ -471,8 +750,37 @@ function renderTaskItem(task, completed) {
   const cat       = CATEGORY[task.category];
   const itemClass = completed ? 'completed' : '';
 
+  // ── Timer display ──
+  let timerHtml = '';
+  if (!completed && task.timerDurationMs && task.timerStartTime) {
+    const deadline   = new Date(task.timerStartTime).getTime() + task.timerDurationMs;
+    const now        = Date.now();
+    const remaining  = deadline - now;
+    const overdue    = remaining <= 0;
+    const pctLeft    = Math.max(0, remaining / task.timerDurationMs);
+
+    let timerClass = 'task-timer-green';
+    if (overdue)           timerClass = 'task-timer-red';
+    else if (pctLeft < 0.25) timerClass = 'task-timer-orange';
+    else if (pctLeft < 0.50) timerClass = 'task-timer-yellow';
+
+    const display = overdue
+      ? '⚠️ ПРОСРОЧЕНО'
+      : `⏱️ ${formatTaskTime(remaining)}`;
+
+    timerHtml = `<div class="task-timer ${timerClass}" data-task-id="${task.id}" data-deadline="${deadline}" data-duration="${task.timerDurationMs}">${display}</div>`;
+  }
+
+  // ── Penalty quest indicator ──
+  const penaltyBadge = task.isPenaltyQuest
+    ? `<span class="badge badge-penalty-quest">⚔️ ШТРАФНОЙ</span>`
+    : '';
+
+  // ── Overdue styling ──
+  const overdueClass = (!completed && isTaskOverdue(task, Date.now())) ? ' task-overdue' : '';
+
   return `
-    <div class="task-item ${itemClass}" data-id="${task.id}">
+    <div class="task-item ${itemClass}${overdueClass}${task.isPenaltyQuest ? ' task-penalty-quest' : ''}" data-id="${task.id}">
       ${completed
         ? `<div class="task-check checked" title="Completed"></div>`
         : `<button class="task-check" data-action="complete" data-id="${task.id}" title="Mark as complete" aria-label="Complete quest"></button>`
@@ -485,11 +793,16 @@ function renderTaskItem(task, completed) {
           <span class="badge badge-${task.difficulty}">${diff.emoji} ${diff.label}</span>
           <span class="xp-reward">+${diff.xp} XP</span>
           <span class="coin-reward">+${diff.coins} 🪙</span>
-          ${task.bonusReward ? `<span class="badge-bonus-reward">🎁 ${escapeHtml(task.bonusReward)}</span>` : ''}
+          ${penaltyBadge}
+          ${task.bonus && (task.bonus.coins > 0 || task.bonus.pct > 0 || task.bonus.custom) ? `<span class="badge-bonus-reward">🎁 Бонус</span>` : ''}
         </div>
+        ${timerHtml}
       </div>
       <div class="task-actions">
-        <button class="btn btn-danger btn-sm" data-action="delete" data-id="${task.id}" data-completed="${completed}" title="Delete quest" aria-label="Delete">✕</button>
+        ${!task.isPenaltyQuest
+          ? `<button class="btn btn-danger btn-sm" data-action="delete" data-id="${task.id}" data-completed="${completed}" title="Delete quest" aria-label="Delete">✕</button>`
+          : ''
+        }
       </div>
     </div>`;
 }
@@ -627,6 +940,13 @@ function renderImpact() {
   document.getElementById('stat-biggest-debt').textContent     = state.debtStats.biggestDebt;
   document.getElementById('stat-times-inflated').textContent   = state.inflationData.timesActivated;
 
+  // Timer stats
+  document.getElementById('stat-completed-on-time').textContent  = state.timerStats.completedOnTime;
+  document.getElementById('stat-completed-overdue').textContent  = state.timerStats.completedOverdue;
+  document.getElementById('stat-penalty-quests').textContent     = state.timerStats.penaltyQuestsCreated;
+  document.getElementById('stat-penalty-coins-lost').textContent = state.timerStats.penaltyCoinsLost;
+  document.getElementById('stat-bonus-coins-earned').textContent = state.timerStats.bonusCoinsEarned;
+
   renderActivityChart();
   renderCategoryBreakdown();
   renderDifficultyBreakdown();
@@ -763,8 +1083,9 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 // Task Modal
 // ==========================================
 
-let selectedDifficulty = 'easy';
-let selectedCategory   = 'work';
+let selectedDifficulty        = 'easy';
+let selectedCategory          = 'work';
+let selectedPenaltyDifficulty = 'easy';
 
 function initTaskModal() {
   // Difficulty selector
@@ -782,6 +1103,52 @@ function initTaskModal() {
       document.querySelectorAll('#category-options .option-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedCategory = btn.dataset.value;
+    });
+  });
+
+  // Penalty difficulty selector
+  document.querySelectorAll('#penalty-difficulty-options .option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#penalty-difficulty-options .option-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedPenaltyDifficulty = btn.dataset.value;
+    });
+  });
+
+  // Timer toggle
+  document.getElementById('timer-toggle-btn').addEventListener('click', () => {
+    const section = document.getElementById('timer-section');
+    const arrow   = document.getElementById('timer-toggle-arrow');
+    const visible = section.style.display !== 'none';
+    section.style.display     = visible ? 'none' : 'block';
+    arrow.textContent         = visible ? '▼' : '▲';
+    // If collapsing, also hide bonus/penalty section
+    if (visible) {
+      document.getElementById('bonus-penalty-section').style.display = 'none';
+    }
+  });
+
+  // Show/hide bonus+penalty sections when timer inputs change
+  const timerInputs = ['task-timer-days', 'task-timer-hours', 'task-timer-minutes'];
+  timerInputs.forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      const days    = parseInt(document.getElementById('task-timer-days').value,    10) || 0;
+      const hours   = parseInt(document.getElementById('task-timer-hours').value,   10) || 0;
+      const minutes = parseInt(document.getElementById('task-timer-minutes').value, 10) || 0;
+      const hasTimer = (days + hours + minutes) > 0;
+      document.getElementById('bonus-penalty-section').style.display = hasTimer ? 'block' : 'none';
+    });
+  });
+
+  // Timer preset buttons (fill inputs)
+  document.querySelectorAll('.task-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('task-timer-days').value    = btn.dataset.d;
+      document.getElementById('task-timer-hours').value   = btn.dataset.h;
+      document.getElementById('task-timer-minutes').value = btn.dataset.m;
+      document.querySelectorAll('.task-preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('bonus-penalty-section').style.display = 'block';
     });
   });
 
@@ -810,14 +1177,30 @@ function initTaskModal() {
 function resetTaskForm() {
   document.getElementById('task-title').value        = '';
   document.getElementById('task-desc').value         = '';
-  document.getElementById('task-bonus-reward').value = '';
-  selectedDifficulty = 'easy';
-  selectedCategory   = 'work';
+  document.getElementById('task-timer-days').value   = '';
+  document.getElementById('task-timer-hours').value  = '';
+  document.getElementById('task-timer-minutes').value = '';
+  document.getElementById('task-bonus-coins').value  = '';
+  document.getElementById('task-bonus-pct').value    = '';
+  document.getElementById('task-bonus-custom').value = '';
+  document.getElementById('task-penalty-coins').value = '';
+  document.getElementById('task-penalty-quest-title').value = '';
+  selectedDifficulty        = 'easy';
+  selectedCategory          = 'work';
+  selectedPenaltyDifficulty = 'easy';
 
   document.querySelectorAll('#difficulty-options .option-btn').forEach((b, i) =>
     b.classList.toggle('active', i === 0));
   document.querySelectorAll('#category-options .option-btn').forEach((b, i) =>
     b.classList.toggle('active', i === 0));
+  document.querySelectorAll('#penalty-difficulty-options .option-btn').forEach((b, i) =>
+    b.classList.toggle('active', i === 0));
+  document.querySelectorAll('.task-preset-btn').forEach(b => b.classList.remove('active'));
+
+  // Collapse timer section
+  document.getElementById('timer-section').style.display       = 'none';
+  document.getElementById('bonus-penalty-section').style.display = 'none';
+  document.getElementById('timer-toggle-arrow').textContent    = '▼';
 }
 
 function submitTask() {
@@ -827,9 +1210,31 @@ function submitTask() {
     showToast('Please enter a quest title!', 'warning');
     return;
   }
-  const desc        = document.getElementById('task-desc').value.trim();
-  const bonusReward = document.getElementById('task-bonus-reward').value.trim();
-  addTask(title, desc, selectedDifficulty, selectedCategory, bonusReward);
+  const desc = document.getElementById('task-desc').value.trim();
+
+  // ── Timer ──
+  const days    = parseInt(document.getElementById('task-timer-days').value,    10) || 0;
+  const hours   = parseInt(document.getElementById('task-timer-hours').value,   10) || 0;
+  const minutes = parseInt(document.getElementById('task-timer-minutes').value, 10) || 0;
+  const totalMs = (days * 86400 + hours * 3600 + minutes * 60) * 1000;
+  const timerDurationMs = totalMs > 0 ? totalMs : null;
+
+  // ── Bonus ──
+  const bonusCoins  = parseInt(document.getElementById('task-bonus-coins').value,  10) || 0;
+  const bonusPct    = parseInt(document.getElementById('task-bonus-pct').value,    10) || 0;
+  const bonusCustom = document.getElementById('task-bonus-custom').value.trim();
+  const bonus = timerDurationMs ? { coins: bonusCoins, pct: bonusPct, custom: bonusCustom } : null;
+
+  // ── Penalty ──
+  const penaltyCoins      = parseInt(document.getElementById('task-penalty-coins').value, 10) || 0;
+  const penaltyQuestTitle = document.getElementById('task-penalty-quest-title').value.trim();
+  const penalty = timerDurationMs ? {
+    coins:          penaltyCoins,
+    questTitle:     penaltyQuestTitle,
+    questDifficulty: selectedPenaltyDifficulty,
+  } : null;
+
+  addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty);
   closeModal('task-modal');
 }
 
@@ -1609,7 +2014,7 @@ function initResetModal() {
     const keys = [
       'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
       'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats', 'qm_activeTimers',
-      'qm_inflationData', 'qm_integrityData', 'qm_debtStats',
+      'qm_inflationData', 'qm_integrityData', 'qm_debtStats', 'qm_timerStats',
     ];
     keys.forEach(k => localStorage.removeItem(k));
     location.reload();
@@ -1631,6 +2036,7 @@ function init() {
   resetDailyTasksIfNewDay();     // Check and reset daily tasks if a new day has begun
   checkInflationReset();         // Reset inflation if date has changed
   updateIntegrityStreakForNewDay(); // Auto-increment integrity streak for new day(s)
+  checkAndApplyExpiredPenalties(); // Apply any pending task timer penalties on load
   updateHeader();
   renderActiveTasks();
   renderCompletedTasks();
@@ -1654,6 +2060,11 @@ function init() {
   if (state.activeTimers.length > 0) {
     renderTimers();
     startTimerTick();
+  }
+
+  // Start task timer tick if any active tasks have timers
+  if (state.tasks.some(t => t.timerDurationMs && !isTaskOverdue(t, Date.now()))) {
+    startTaskTimerTick();
   }
 
   // Level-up overlay — click anywhere to dismiss early
