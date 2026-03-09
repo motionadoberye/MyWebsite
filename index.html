@@ -181,6 +181,32 @@
           <div class="stat-value" id="stat-times-inflated">0</div>
           <div class="stat-label">Times Inflated</div>
         </div>
+        <!-- Timer Stats -->
+        <div class="stat-card">
+          <div class="stat-icon">⏱️</div>
+          <div class="stat-value" id="stat-completed-on-time">0</div>
+          <div class="stat-label">Completed On Time</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⌛</div>
+          <div class="stat-value" id="stat-completed-overdue">0</div>
+          <div class="stat-label">Completed Overdue</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⚔️</div>
+          <div class="stat-value" id="stat-penalty-quests">0</div>
+          <div class="stat-label">Penalty Quests</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💸</div>
+          <div class="stat-value" id="stat-penalty-coins-lost">0</div>
+          <div class="stat-label">Penalty Coins Lost</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🎁</div>
+          <div class="stat-value" id="stat-bonus-coins-earned">0</div>
+          <div class="stat-label">Bonus Coins Earned</div>
+        </div>
       </div>
 
       <div class="card" style="margin-top: 1.5rem;">
@@ -261,9 +287,81 @@
             <button class="option-btn" data-value="creative">🎨 Creative</button>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label" for="task-bonus-reward">Bonus Reward <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional)</small></label>
-          <input class="form-input" type="text" id="task-bonus-reward" placeholder="e.g. Ice cream 🍦, 30 min YouTube" maxlength="100" autocomplete="off">
+        <!-- ===== TIMER SECTION (collapsible) ===== -->
+        <div class="form-group timer-toggle-group">
+          <button type="button" class="timer-toggle-btn" id="timer-toggle-btn">
+            <span class="timer-toggle-icon">⏱️</span>
+            <span>Deadline / Timer</span>
+            <span class="timer-toggle-arrow" id="timer-toggle-arrow">▼</span>
+          </button>
+        </div>
+
+        <div class="timer-section" id="timer-section" style="display:none;">
+          <!-- Time inputs -->
+          <div class="form-group">
+            <label class="form-label">Duration</label>
+            <div class="timer-inputs-row">
+              <div class="timer-input-group">
+                <input class="form-input timer-num-input" type="number" id="task-timer-days" min="0" max="365" placeholder="0">
+                <span class="timer-input-label">Days</span>
+              </div>
+              <div class="timer-input-group">
+                <input class="form-input timer-num-input" type="number" id="task-timer-hours" min="0" max="23" placeholder="0">
+                <span class="timer-input-label">Hours</span>
+              </div>
+              <div class="timer-input-group">
+                <input class="form-input timer-num-input" type="number" id="task-timer-minutes" min="0" max="59" placeholder="0">
+                <span class="timer-input-label">Min</span>
+              </div>
+            </div>
+            <!-- Presets -->
+            <div class="timer-presets" style="margin-top:0.5rem;">
+              <button type="button" class="preset-btn task-preset-btn" data-d="0" data-h="0" data-m="30">30 min</button>
+              <button type="button" class="preset-btn task-preset-btn" data-d="0" data-h="1" data-m="0">1 h</button>
+              <button type="button" class="preset-btn task-preset-btn" data-d="0" data-h="2" data-m="0">2 h</button>
+              <button type="button" class="preset-btn task-preset-btn" data-d="0" data-h="4" data-m="0">4 h</button>
+              <button type="button" class="preset-btn task-preset-btn" data-d="1" data-h="0" data-m="0">1 day</button>
+              <button type="button" class="preset-btn task-preset-btn" data-d="2" data-h="0" data-m="0">2 days</button>
+              <button type="button" class="preset-btn task-preset-btn" data-d="7" data-h="0" data-m="0">1 week</button>
+            </div>
+          </div>
+
+          <!-- BONUS SECTION -->
+          <div class="timer-sub-section" id="bonus-penalty-section" style="display:none;">
+            <div class="timer-sub-title">🎁 Bonus for completing early</div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Bonus coins (fixed)</label>
+              <input class="form-input" type="number" id="task-bonus-coins" min="0" max="9999" placeholder="e.g. 10">
+            </div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Bonus % to base reward</label>
+              <input class="form-input" type="number" id="task-bonus-pct" min="0" max="500" placeholder="e.g. 25">
+            </div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Custom reward text</label>
+              <input class="form-input" type="text" id="task-bonus-custom" maxlength="100" placeholder="e.g. Кексик 🧁" autocomplete="off">
+            </div>
+
+            <!-- PENALTY SECTION -->
+            <div class="timer-sub-title" style="margin-top:1rem;">⚔️ Penalty for overdue</div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Penalty coins (deducted)</label>
+              <input class="form-input" type="number" id="task-penalty-coins" min="0" max="9999" placeholder="e.g. 20">
+            </div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Penalty quest title</label>
+              <input class="form-input" type="text" id="task-penalty-quest-title" maxlength="100" placeholder="e.g. Отжаться 20 раз" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" style="font-size:0.78rem;">Penalty quest difficulty</label>
+              <div class="option-grid" id="penalty-difficulty-options">
+                <button class="option-btn active" data-value="easy">🟢 Easy</button>
+                <button class="option-btn" data-value="medium">🟡 Medium</button>
+                <button class="option-btn" data-value="hard">🟠 Hard</button>
+                <button class="option-btn" data-value="epic">🔴 Epic</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">

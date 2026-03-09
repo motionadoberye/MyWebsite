@@ -1300,3 +1300,195 @@ body {
   .integrity-badge { display: none; }
   .btn-cheat-micro { display: none; }
 }
+
+/* ==========================================
+   Task Timer — Toggle Button
+   ========================================== */
+.timer-toggle-group { margin-bottom: 0; }
+
+.timer-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.85rem;
+  color: var(--accent-purple-light);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+
+.timer-toggle-btn:hover {
+  background: rgba(124, 58, 237, 0.15);
+  border-color: var(--accent-purple);
+}
+
+.timer-toggle-arrow {
+  margin-left: auto;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.timer-toggle-icon { font-size: 1rem; }
+
+/* ==========================================
+   Task Timer — Section Inside Modal
+   ========================================== */
+.timer-section {
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  margin-top: 0.5rem;
+  background: rgba(124, 58, 237, 0.04);
+  animation: fadeIn 0.2s ease;
+}
+
+/* Days / Hours / Minutes inputs row */
+.timer-inputs-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.timer-input-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.timer-num-input {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 0.5rem 0.4rem !important;
+  -moz-appearance: textfield;
+}
+
+.timer-num-input::-webkit-inner-spin-button,
+.timer-num-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.timer-input-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Bonus / Penalty sub-sections */
+.timer-sub-section {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.timer-sub-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.6rem;
+}
+
+/* ==========================================
+   Task Timer — Live Countdown on Cards
+   ========================================== */
+.task-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 20px;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.task-timer-green {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-green);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.task-timer-yellow {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--accent-yellow);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.task-timer-orange {
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--accent-orange);
+  border: 1px solid rgba(249, 115, 22, 0.25);
+}
+
+.task-timer-red {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  animation: timerPulse 1.2s ease infinite;
+}
+
+@keyframes timerPulse {
+  0%, 100% { opacity: 1;   box-shadow: none; }
+  50%       { opacity: 0.7; box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+}
+
+/* ==========================================
+   Overdue Task Card — Pulsing Red Border
+   ========================================== */
+.task-item.task-overdue {
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  animation: overdueCard 2s ease infinite, slideIn 0.3s ease;
+}
+
+@keyframes overdueCard {
+  0%, 100% { border-color: rgba(239, 68, 68, 0.35); box-shadow: none; }
+  50%       { border-color: rgba(239, 68, 68, 0.75); box-shadow: 0 0 12px rgba(239, 68, 68, 0.2); }
+}
+
+/* ==========================================
+   Penalty Quest Card
+   ========================================== */
+.task-item.task-penalty-quest {
+  border-color: rgba(249, 115, 22, 0.4) !important;
+  background: rgba(249, 115, 22, 0.05) !important;
+}
+
+.task-item.task-penalty-quest:hover {
+  border-color: rgba(249, 115, 22, 0.65) !important;
+  background: rgba(249, 115, 22, 0.08) !important;
+}
+
+/* Penalty Quest badge */
+.badge-penalty-quest {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(249, 115, 22, 0.15);
+  color: var(--accent-orange);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Reward timer badge on reward cards */
+.reward-timer-badge {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
