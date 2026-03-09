@@ -63,6 +63,10 @@
         <span class="nav-icon">📅</span>
         <span>Daily</span>
       </button>
+      <button class="nav-tab" data-tab="dreams">
+        <span class="nav-icon">🌟</span>
+        <span>Dreams</span>
+      </button>
     </div>
   </nav>
 
@@ -207,6 +211,22 @@
           <div class="stat-value" id="stat-bonus-coins-earned">0</div>
           <div class="stat-label">Bonus Coins Earned</div>
         </div>
+        <!-- Dreams Stats -->
+        <div class="stat-card">
+          <div class="stat-icon">🌟</div>
+          <div class="stat-value" id="stat-dreams-created">0</div>
+          <div class="stat-label">Dreams Created</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🏆</div>
+          <div class="stat-value" id="stat-dreams-achieved">0</div>
+          <div class="stat-label">Dreams Achieved</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⭐</div>
+          <div class="stat-value" id="stat-dreams-xp">0</div>
+          <div class="stat-label">XP from Dreams</div>
+        </div>
       </div>
 
       <div class="card" style="margin-top: 1.5rem;">
@@ -248,6 +268,23 @@
         <span class="badge-count" id="daily-streak-badge">🔥 0</span>
       </div>
       <div class="task-list" id="daily-tasks-list"></div>
+    </section>
+
+    <!-- DREAMS SECTION -->
+    <section class="section" id="section-dreams">
+      <div class="section-header">
+        <h2 class="section-title">🌟 Dreams</h2>
+        <button class="btn btn-primary" id="add-dream-btn">
+          <span>+</span> New Dream
+        </button>
+      </div>
+      <div id="dreams-list"></div>
+
+      <div class="section-header" style="margin-top: 2rem;">
+        <h2 class="section-title">🏆 Достигнутые мечты</h2>
+        <span class="badge-count" id="achieved-dreams-count">0</span>
+      </div>
+      <div id="achieved-dreams-list"></div>
     </section>
 
   </main>
@@ -534,6 +571,136 @@
 
   <!-- ===== FLOATING TIMERS ===== -->
   <div class="timers-container" id="timers-container"></div>
+
+  <!-- ===== ADD/EDIT DREAM MODAL ===== -->
+  <div class="modal-overlay" id="dream-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 class="modal-title" id="dream-modal-title">🌟 New Dream</h3>
+        <button class="modal-close" id="close-dream-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Emoji picker -->
+        <div class="form-group">
+          <label class="form-label">Emoji / Icon</label>
+          <div class="dream-emoji-grid">
+            <button type="button" class="dream-emoji-btn active" data-emoji="🌟">🌟</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🎨">🎨</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="💰">💰</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🎓">🎓</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🏋️">🏋️</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🌍">🌍</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="💻">💻</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🎵">🎵</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🚀">🚀</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="❤️">❤️</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="🏠">🏠</button>
+            <button type="button" class="dream-emoji-btn" data-emoji="📚">📚</button>
+          </div>
+        </div>
+        <!-- Title -->
+        <div class="form-group">
+          <label class="form-label" for="dream-title">Dream Title *</label>
+          <input class="form-input" type="text" id="dream-title" placeholder="e.g. Зарабатывать $500+ на моушн дизайне" maxlength="100" autocomplete="off">
+        </div>
+        <!-- Description -->
+        <div class="form-group">
+          <label class="form-label" for="dream-desc">Description</label>
+          <textarea class="form-input form-textarea" id="dream-desc" placeholder="Detailed description, plan, thoughts…" maxlength="500"></textarea>
+        </div>
+        <!-- Custom Reward -->
+        <div class="form-group">
+          <label class="form-label" for="dream-custom-reward">Reward for achieving (optional)</label>
+          <input class="form-input" type="text" id="dream-custom-reward" placeholder="e.g. Купить себе PS5 🎮" maxlength="100" autocomplete="off">
+        </div>
+        <!-- XP and Coins -->
+        <div class="form-group">
+          <label class="form-label">XP &amp; Coins for achieving *</label>
+          <div class="timer-inputs-row">
+            <div class="timer-input-group">
+              <input class="form-input timer-num-input" type="number" id="dream-xp" min="1" max="99999" placeholder="500">
+              <span class="timer-input-label">XP</span>
+            </div>
+            <div class="timer-input-group">
+              <input class="form-input timer-num-input" type="number" id="dream-coins" min="0" max="99999" placeholder="200">
+              <span class="timer-input-label">Coins</span>
+            </div>
+          </div>
+        </div>
+        <!-- Stages -->
+        <div class="form-group">
+          <label class="form-label" for="dream-stages">Number of stages <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional, 0 = none)</small></label>
+          <input class="form-input" type="number" id="dream-stages" min="0" max="100" placeholder="0">
+        </div>
+        <!-- Timer -->
+        <div class="form-group timer-toggle-group">
+          <button type="button" class="timer-toggle-btn" id="dream-timer-toggle-btn">
+            <span class="timer-toggle-icon">⏱️</span>
+            <span>Deadline / Timer</span>
+            <span class="timer-toggle-arrow" id="dream-timer-toggle-arrow">▼</span>
+          </button>
+        </div>
+        <div class="timer-section" id="dream-timer-section" style="display:none;">
+          <div class="form-group">
+            <label class="form-label">Duration</label>
+            <div class="timer-inputs-row">
+              <div class="timer-input-group">
+                <input class="form-input timer-num-input" type="number" id="dream-timer-days" min="0" max="3650" placeholder="0">
+                <span class="timer-input-label">Days</span>
+              </div>
+              <div class="timer-input-group">
+                <input class="form-input timer-num-input" type="number" id="dream-timer-hours" min="0" max="23" placeholder="0">
+                <span class="timer-input-label">Hours</span>
+              </div>
+              <div class="timer-input-group">
+                <input class="form-input timer-num-input" type="number" id="dream-timer-minutes" min="0" max="59" placeholder="0">
+                <span class="timer-input-label">Min</span>
+              </div>
+            </div>
+            <div class="timer-presets" style="margin-top:0.5rem;">
+              <button type="button" class="preset-btn dream-preset-btn" data-d="7"   data-h="0" data-m="0">1 week</button>
+              <button type="button" class="preset-btn dream-preset-btn" data-d="30"  data-h="0" data-m="0">1 month</button>
+              <button type="button" class="preset-btn dream-preset-btn" data-d="90"  data-h="0" data-m="0">3 months</button>
+              <button type="button" class="preset-btn dream-preset-btn" data-d="180" data-h="0" data-m="0">6 months</button>
+              <button type="button" class="preset-btn dream-preset-btn" data-d="365" data-h="0" data-m="0">1 year</button>
+            </div>
+          </div>
+          <div class="timer-sub-section" id="dream-bonus-penalty-section" style="display:none;">
+            <div class="timer-sub-title">🎁 Bonus for achieving early</div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Bonus coins (fixed)</label>
+              <input class="form-input" type="number" id="dream-bonus-coins" min="0" max="99999" placeholder="e.g. 100">
+            </div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+              <label class="form-label" style="font-size:0.78rem;">Custom reward text</label>
+              <input class="form-input" type="text" id="dream-bonus-custom" maxlength="100" placeholder="e.g. Купить торт 🎂" autocomplete="off">
+            </div>
+            <div class="timer-sub-title" style="margin-top:1rem;">⚔️ Penalty for overdue</div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" style="font-size:0.78rem;">Penalty coins (deducted)</label>
+              <input class="form-input" type="number" id="dream-penalty-coins" min="0" max="99999" placeholder="e.g. 50">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-dream-btn">Cancel</button>
+        <button class="btn btn-primary" id="save-dream-btn">Add Dream</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DREAM ACHIEVED OVERLAY ===== -->
+  <div class="dream-achieved-overlay" id="dream-achieved-overlay">
+    <div class="dream-achieved-content">
+      <div class="dream-achieved-stars">⭐ ⭐ ⭐</div>
+      <div class="dream-achieved-title">🌟 МЕЧТА ДОСТИГНУТА! 🌟</div>
+      <div class="dream-achieved-name" id="dream-achieved-name"></div>
+      <div class="dream-achieved-rewards" id="dream-achieved-rewards"></div>
+      <div class="dream-achieved-custom" id="dream-achieved-custom"></div>
+      <div class="dream-achieved-hint">Нажми куда угодно чтобы продолжить</div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

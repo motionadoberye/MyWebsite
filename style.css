@@ -1492,3 +1492,287 @@ body {
   color: var(--text-muted);
   margin-bottom: 0.5rem;
 }
+
+/* ============================
+   Feature 1: Penalty reward badge
+   ============================ */
+.badge-penalty-reward {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* ============================
+   Feature 2: Edit button
+   ============================ */
+.btn-edit {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  font-size: 0.85rem;
+}
+.btn-edit:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: #c7d2fe;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* ============================
+   Feature 3: Dreams Tab
+   ============================ */
+
+/* Dream cards */
+.dream-card {
+  position: relative;
+  border-radius: 16px;
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.dream-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.15), 0 4px 20px rgba(0,0,0,0.4);
+}
+.dream-card-glow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(167,139,250,0.08) 0%, rgba(236,72,153,0.06) 50%, rgba(59,130,246,0.06) 100%);
+  pointer-events: none;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.dream-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(167,139,250,0.5), rgba(236,72,153,0.4), rgba(59,130,246,0.4));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.dream-card-inner {
+  padding: 1.25rem;
+  position: relative;
+  z-index: 1;
+}
+.dream-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.dream-emoji {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.dream-card-title-block {
+  flex: 1;
+  min-width: 0;
+}
+.dream-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.2rem;
+}
+.dream-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Progress bar for stages */
+.dream-progress {
+  margin-bottom: 0.75rem;
+}
+.dream-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.3rem;
+}
+.dream-progress-bar-wrapper {
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.dream-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #a78bfa, #ec4899);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* Dream rewards row */
+.dream-rewards {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+.dream-custom-reward {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Dream action buttons */
+.dream-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.btn-stage {
+  background: rgba(16,185,129,0.15);
+  color: #34d399;
+  border: 1px solid rgba(16,185,129,0.3);
+}
+.btn-stage:hover {
+  background: rgba(16,185,129,0.25);
+  border-color: rgba(16,185,129,0.5);
+}
+.btn-dream-achieve {
+  background: linear-gradient(135deg, rgba(167,139,250,0.25), rgba(236,72,153,0.2));
+  color: #c4b5fd;
+  border: 1px solid rgba(167,139,250,0.4);
+  font-weight: 600;
+}
+.btn-dream-achieve:hover {
+  background: linear-gradient(135deg, rgba(167,139,250,0.4), rgba(236,72,153,0.3));
+  color: #e9d5ff;
+  border-color: rgba(167,139,250,0.6);
+}
+
+/* Achieved dream cards */
+.dream-card-achieved {
+  opacity: 0.85;
+}
+.dream-card-achieved::before {
+  background: linear-gradient(135deg, rgba(251,191,36,0.6), rgba(245,158,11,0.5));
+}
+.dream-card-achieved:hover {
+  box-shadow: 0 0 20px rgba(251,191,36,0.2), 0 4px 20px rgba(0,0,0,0.4);
+}
+.dream-achieved-date {
+  font-size: 0.78rem;
+  color: #fbbf24;
+  margin-top: 0.2rem;
+}
+
+/* Emoji picker in dream modal */
+.dream-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.4rem;
+}
+.dream-emoji-btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.3rem;
+  padding: 0.4rem;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.dream-emoji-btn:hover {
+  background: rgba(255,255,255,0.1);
+  transform: scale(1.1);
+}
+.dream-emoji-btn.active {
+  background: rgba(167,139,250,0.2);
+  border-color: rgba(167,139,250,0.6);
+  box-shadow: 0 0 8px rgba(167,139,250,0.3);
+}
+
+/* Dream Achieved overlay */
+.dream-achieved-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.88);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.dream-achieved-overlay.show {
+  opacity: 1;
+  pointer-events: all;
+}
+.dream-achieved-content {
+  text-align: center;
+  padding: 2.5rem;
+  max-width: 480px;
+  animation: dreamAchievedIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.dream-achieved-stars {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  animation: starPulse 1.5s ease-in-out infinite;
+}
+.dream-achieved-title {
+  font-size: 1.8rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b, #ec4899, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.75rem;
+  line-height: 1.2;
+}
+.dream-achieved-name {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+.dream-achieved-rewards {
+  font-size: 1rem;
+  color: #fbbf24;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.dream-achieved-custom {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+.dream-achieved-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Wide modal for dreams */
+.modal-wide {
+  max-width: 540px;
+}
+
+@keyframes dreamAchievedIn {
+  from { transform: scale(0.5) rotate(-5deg); opacity: 0; }
+  to   { transform: scale(1) rotate(0deg);   opacity: 1; }
+}
+@keyframes starPulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.15); }
+}
