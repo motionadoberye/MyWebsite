@@ -271,6 +271,16 @@ function recalcStreak() {
 // Task Operations (CRUD)
 // ==========================================
 
+/**
+ * Return half of a base reward value, rounded down.
+ * Used for penalty quest rewards (50% of normal).
+ * @param {number} base
+ * @returns {number}
+ */
+function penaltyHalf(base) {
+  return Math.floor(base / 2);
+}
+
 // ==========================================
 // Task Timer Helpers
 // ==========================================
@@ -490,8 +500,8 @@ function completeTask(taskId) {
 
   // Award XP and coins
   const diff           = DIFFICULTY[task.difficulty];
-  const xpReward       = task.isPenaltyQuest ? Math.floor(diff.xp    / 2) : diff.xp;
-  const coinReward     = task.isPenaltyQuest ? Math.floor(diff.coins  / 2) : diff.coins;
+  const xpReward       = task.isPenaltyQuest ? penaltyHalf(diff.xp)    : diff.xp;
+  const coinReward     = task.isPenaltyQuest ? penaltyHalf(diff.coins)  : diff.coins;
   const penaltyNote    = task.isPenaltyQuest ? ' (штрафной x0.5)' : '';
   const previousCoins  = state.userStats.coins;
   addXP(xpReward);
@@ -767,8 +777,8 @@ function renderCompletedTasks() {
 function renderTaskItem(task, completed) {
   const diff      = DIFFICULTY[task.difficulty];
   const cat       = CATEGORY[task.category];
-  const xpDisplay   = task.isPenaltyQuest ? Math.floor(diff.xp    / 2) : diff.xp;
-  const coinDisplay = task.isPenaltyQuest ? Math.floor(diff.coins / 2) : diff.coins;
+  const xpDisplay   = task.isPenaltyQuest ? penaltyHalf(diff.xp)    : diff.xp;
+  const coinDisplay = task.isPenaltyQuest ? penaltyHalf(diff.coins) : diff.coins;
   const itemClass = completed ? 'completed' : '';
 
   // ── Timer display ──
@@ -2274,15 +2284,11 @@ function achieveDream(dreamId) {
   const dream = state.dreams.splice(idx, 1)[0];
   dream.achievedAt = new Date().toISOString();
 
-  // Award remaining XP/coins proportionally
-  // If stages: award remaining stages proportionally; if no stages: award full
-  let awardedXp    = dream.xpReward;
-  let awardedCoins = dream.coinReward;
-  if (dream.totalStages > 0 && dream.completedStages > 0) {
-    const remaining = dream.totalStages - dream.completedStages;
-    awardedXp    = Math.floor(dream.xpReward    * remaining / dream.totalStages);
-    awardedCoins = Math.floor(dream.coinReward   * remaining / dream.totalStages);
-  }
+  // Always award the full configured dream reward on achievement.
+  // Stage completions are progressive partial bonuses — the complete
+  // reward is only fully unlocked when the dream is achieved.
+  const awardedXp    = dream.xpReward;
+  const awardedCoins = dream.coinReward;
 
   // Check early completion bonus
   let bonusCoins = 0;
@@ -2337,6 +2343,7 @@ function checkDreamPenalties() {
             const debtAbs = Math.abs(state.userStats.coins);
             if (debtAbs > state.debtStats.biggestDebt) state.debtStats.biggestDebt = debtAbs;
           }
+          // Small delay avoids the toast competing visually with the re-render triggered above
           setTimeout(() => showToast(`💸 Просрочена мечта: -${dream.penalty.coins} 🪙 "${escapeHtml(dream.title)}"`, 'error'), 200);
         }
         changed = true;
@@ -2492,7 +2499,8 @@ function showDreamAchieved(dream, xpReward, coinReward, bonusCoins) {
   if (rewardsEl) rewardsEl.textContent = `+${xpReward} XP  +${coinReward + bonusCoins} 🪙${bonusCoins > 0 ? ` (включая бонус +${bonusCoins} 🪙)` : ''}`;
   if (customEl)  customEl.textContent  = dream.customReward ? `🎁 ${dream.customReward}` : '';
   overlay.classList.add('show');
-  setTimeout(() => overlay.classList.remove('show'), 5000);
+  // Auto-dismiss after 8s; user can also click anywhere to dismiss immediately
+  setTimeout(() => overlay.classList.remove('show'), 8000);
   showToast(`🌟 МЕЧТА ДОСТИГНУТА: "${escapeHtml(dream.title)}"!`, 'success');
   setTimeout(() => showToast(`+${xpReward} XP  +${coinReward + bonusCoins} 🪙`, 'success'), 500);
   if (dream.customReward) {
