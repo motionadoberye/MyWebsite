@@ -1776,3 +1776,94 @@ body {
   0%, 100% { transform: scale(1); }
   50%       { transform: scale(1.15); }
 }
+
+/* ==========================================
+   Chrome Extension Integration — Site Blocker
+   ========================================== */
+
+/* Extension panel in Rewards section */
+.extension-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+.extension-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.ext-install-link {
+  color: var(--accent-purple-light);
+  font-size: 0.8rem;
+  text-decoration: none;
+  margin-left: auto;
+}
+.ext-install-link:hover { text-decoration: underline; }
+
+/* Blocked-sites collapsible */
+.blocked-sites-details summary.blocked-sites-summary {
+  list-style: none;
+  padding: 0.7rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-secondary);
+}
+.blocked-sites-details summary::-webkit-details-marker { display: none; }
+.blocked-sites-details[open] summary { border-bottom: 1px solid var(--border); }
+
+.blocked-sites-body {
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.blocked-sites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.blocked-site-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  font-size: 0.83rem;
+}
+
+.blocked-site-domain { flex: 1; }
+
+.blocked-site-add {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Timer site badge (inside floating timer widget) */
+.timer-site-badge {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--accent-green-light);
+  background: rgba(16,185,129,.15);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}

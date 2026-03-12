@@ -99,6 +99,24 @@
           <button class="btn btn-primary" id="add-reward-btn"><span>+</span> New Reward</button>
         </div>
       </div>
+      <!-- Extension / Blocked Sites Panel -->
+      <div class="extension-panel" id="extension-panel">
+        <div class="extension-status" id="extension-status">
+          <span id="ext-status-icon">🔄</span>
+          <span id="ext-status-text">Проверка расширения QuestLife…</span>
+          <a class="ext-install-link" id="ext-install-link" href="https://github.com/motionadoberye/MyWebsite/tree/main/questlife-extension" target="_blank" rel="noopener" style="display:none;">⬇️ Установить расширение</a>
+        </div>
+        <details class="blocked-sites-details">
+          <summary class="blocked-sites-summary">🔒 Заблокированные сайты</summary>
+          <div class="blocked-sites-body">
+            <div id="blocked-sites-list" class="blocked-sites-list"></div>
+            <div class="blocked-site-add">
+              <input class="form-input" type="text" id="new-blocked-site" placeholder="youtube.com" autocomplete="off" style="flex:1;">
+              <button class="btn btn-primary btn-sm" id="add-blocked-site-btn">+ Добавить</button>
+            </div>
+          </div>
+        </details>
+      </div>
       <!-- Inflation Banner -->
       <div class="inflation-banner" id="inflation-banner" style="display:none;">
         🔥 ИНФЛЯЦИЯ АКТИВНА — цены повышены на <span id="inflation-pct">50</span>% до полуночи
@@ -439,6 +457,13 @@
             <button type="button" class="preset-btn" data-minutes="90">90 min</button>
             <button type="button" class="preset-btn" data-minutes="120">120 min</button>
           </div>
+        </div>
+        <!-- Linked site for extension blocking (shown only if timer is set) -->
+        <div class="form-group" id="reward-linked-site-group" style="display:none;">
+          <label class="form-label" for="reward-linked-site">🔓 Разблокировать сайт <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(расширение QuestLife)</small></label>
+          <select class="form-input" id="reward-linked-site">
+            <option value="">— Не привязывать сайт —</option>
+          </select>
         </div>
       </div>
       <div class="modal-footer">

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сайт заблокирован — QuestLife</title>
+  <link rel="stylesheet" href="blocked.css">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Lock icon -->
+    <div class="lock-icon">🔒</div>
+
+    <!-- Main message -->
+    <h1 class="title">Этот сайт заблокирован</h1>
+    <p class="subtitle" id="domain-label"></p>
+
+    <p class="desc">
+      Хочешь разблокировать?<br>
+      Заработай монеты и купи время в <strong>QuestLife</strong>!
+    </p>
+
+    <!-- Coin balance (if available) -->
+    <div class="coin-badge" id="coin-badge" style="display:none">
+      🪙 У тебя сейчас: <strong id="coin-amount">0</strong> монет
+    </div>
+
+    <!-- Paused timer hint -->
+    <div class="paused-hint" id="paused-hint" style="display:none">
+      <span id="paused-hint-text"></span>
+      <button class="btn btn-accent" id="resume-btn">▶️ Продолжить</button>
+    </div>
+
+    <!-- CTA -->
+    <button class="btn btn-primary" id="open-questlife-btn">🌐 Открыть QuestLife</button>
+
+    <!-- Motivational quote -->
+    <div class="quote" id="quote"></div>
+  </div>
+
+  <script src="blocked.js"></script>
+</body>
+</html>

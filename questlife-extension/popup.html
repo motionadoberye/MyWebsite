@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuestLife — Site Blocker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="popup-header">
+    <div class="popup-brand">
+      <span class="popup-icon">⚔️</span>
+      <span class="popup-title">QuestLife</span>
+    </div>
+    <div class="popup-stats" id="popup-stats">
+      <span class="popup-level">LVL <span id="popup-level">—</span></span>
+      <span class="popup-coins">🪙 <span id="popup-coins">—</span></span>
+    </div>
+  </header>
+
+  <!-- Extension status -->
+  <div class="status-bar" id="status-bar">
+    <span id="status-icon">🔄</span>
+    <span id="status-text">Подключение…</span>
+  </div>
+
+  <!-- ===== ACTIVE TIMERS ===== -->
+  <section class="popup-section" id="section-timers">
+    <div class="section-title">⏱️ Активные таймеры</div>
+    <div id="timers-list" class="timers-list">
+      <div class="empty-msg">Нет активных таймеров</div>
+    </div>
+  </section>
+
+  <!-- ===== BLOCKED SITES ===== -->
+  <section class="popup-section">
+    <div class="section-title">🔒 Заблокированные сайты</div>
+    <div id="sites-list" class="sites-list"></div>
+  </section>
+
+  <!-- ===== QUICK ACTIONS ===== -->
+  <section class="popup-section quick-actions">
+    <button class="btn btn-primary" id="open-questlife-btn">🌐 Открыть QuestLife</button>
+    <button class="btn btn-danger"  id="block-all-btn">🚫 Заблокировать всё</button>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

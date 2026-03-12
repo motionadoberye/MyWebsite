@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "QuestLife - Site Blocker",
+  "description": "Блокирует сайты и управляет таймерами наград из QuestLife",
+  "version": "1.0.0",
+  "permissions": [
+    "storage",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "alarms",
+    "tabs",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "block_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
