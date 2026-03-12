@@ -114,6 +114,11 @@ let state = {
     achieved:     0,     // total dreams achieved
     xpFromDreams: 0,     // total XP earned from dreams
   },
+  // ── Extension / Site Blocker ──
+  blockedSites: [
+    'youtube.com', 'tiktok.com', 'twitter.com', 'x.com',
+    'instagram.com', 'reddit.com', 'twitch.tv', 'vk.com',
+  ],
 };
 
 // ==========================================
@@ -138,6 +143,7 @@ function saveState() {
   localStorage.setItem('qm_dreams',          JSON.stringify(state.dreams));
   localStorage.setItem('qm_completedDreams', JSON.stringify(state.completedDreams));
   localStorage.setItem('qm_dreamStats',      JSON.stringify(state.dreamStats));
+  localStorage.setItem('qm_blockedSites',    JSON.stringify(state.blockedSites));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -179,6 +185,10 @@ function loadState() {
   state.completedDreams = parse('qm_completedDreams', []);
   const savedDreamStats = parse('qm_dreamStats', null);
   if (savedDreamStats) state.dreamStats = { ...state.dreamStats, ...savedDreamStats };
+
+  // Load blocked sites list (backward-compatible)
+  const savedBlockedSites = parse('qm_blockedSites', null);
+  if (savedBlockedSites) state.blockedSites = savedBlockedSites;
 }
 
 // ==========================================
@@ -615,14 +625,22 @@ function deleteTask(taskId, fromCompleted = false) {
 // Rewards Operations
 // ==========================================
 
-/** Add a custom reward to the shop */
-function addReward(title, emoji, price, timerMinutes) {
+/**
+ * Add a custom reward to the shop.
+ * @param {string}      title        - Display name of the reward
+ * @param {string}      emoji        - Emoji icon
+ * @param {number}      price        - Cost in coins
+ * @param {number|null} timerMinutes - Optional countdown duration in minutes
+ * @param {string|null} linkedSite   - Optional domain to unblock via the extension (e.g. "youtube.com")
+ */
+function addReward(title, emoji, price, timerMinutes, linkedSite) {
   const reward = {
     id:           `reward-${Date.now()}`,
     title,
     emoji:        emoji || '🎁',
     price:        parseInt(price, 10),
     timerMinutes: timerMinutes || null,  // optional countdown timer in minutes
+    linkedSite:   linkedSite  || null,  // optional domain to unblock via extension
   };
   state.rewards.push(reward);
   saveState();
@@ -685,7 +703,7 @@ function buyReward(rewardId) {
 
   // Start countdown timer if the reward has one
   if (reward.timerMinutes) {
-    startTimer(reward.title, reward.emoji, reward.timerMinutes);
+    startTimer(reward.title, reward.emoji, reward.timerMinutes, reward.linkedSite);
   }
 }
 
@@ -721,6 +739,9 @@ function updateHeader() {
   const countEl = document.getElementById('integrity-count');
   if (iconEl)  iconEl.textContent  = getIntegrityIcon(state.integrityData.currentStreak);
   if (countEl) countEl.textContent = state.integrityData.currentStreak;
+
+  // Keep extension stats in sync whenever the header updates
+  if (extensionConnected) syncExtensionState();
 }
 
 // ==========================================
@@ -902,7 +923,7 @@ function renderRewards() {
     <div class="reward-card">
       <span class="reward-emoji">${escapeHtml(r.emoji)}</span>
       <div class="reward-title">${escapeHtml(r.title)}</div>
-      ${r.timerMinutes ? `<div class="reward-timer-badge">⏱️ ${r.timerMinutes} min timer</div>` : ''}
+      ${r.timerMinutes ? `<div class="reward-timer-badge">⏱️ ${r.timerMinutes} min timer${r.linkedSite ? ` · 🔓 ${escapeHtml(r.linkedSite)}` : ''}</div>` : ''}
       ${priceHtml}
       <div class="reward-actions">
         <button class="btn ${buyClass} btn-sm" data-action="buy" data-id="${r.id}">${buyLabel}</button>
@@ -1400,17 +1421,23 @@ function openRewardEditModal(rewardId) {
   document.getElementById('reward-price').value = reward.price;
   document.getElementById('reward-timer').value = reward.timerMinutes || '';
   document.querySelectorAll('#reward-modal .preset-btn').forEach(b => b.classList.remove('active'));
+  // Show linked-site selector if timer is set
+  updateLinkedSiteVisibility();
+  if (reward.linkedSite) {
+    document.getElementById('reward-linked-site').value = reward.linkedSite;
+  }
   openModal('reward-modal');
   setTimeout(() => document.getElementById('reward-title').focus(), 100);
 }
 
-function updateReward(rewardId, title, emoji, price, timerMinutes) {
+function updateReward(rewardId, title, emoji, price, timerMinutes, linkedSite) {
   const reward = state.rewards.find(r => r.id === rewardId);
   if (!reward) return;
   reward.title        = title;
   reward.emoji        = emoji || '🎁';
   reward.price        = parseInt(price, 10);
   reward.timerMinutes = timerMinutes || null;
+  reward.linkedSite   = linkedSite  || null;
   saveState();
   renderRewards();
   showToast(`Reward updated! ✏️`, 'info');
@@ -1425,11 +1452,16 @@ function initRewardModal() {
     document.getElementById('reward-emoji').value = '';
     document.getElementById('reward-price').value = '';
     document.getElementById('reward-timer').value = '';
+    document.getElementById('reward-linked-site').value = '';
     // Clear active preset highlight
     document.querySelectorAll('#reward-modal .preset-btn').forEach(b => b.classList.remove('active'));
+    updateLinkedSiteVisibility();
     openModal('reward-modal');
     setTimeout(() => document.getElementById('reward-title').focus(), 100);
   });
+
+  // Show/hide linked-site selector based on whether a timer is entered
+  document.getElementById('reward-timer').addEventListener('input', updateLinkedSiteVisibility);
 
   // Timer preset quick-select buttons
   document.querySelectorAll('#reward-modal .preset-btn').forEach(btn => {
@@ -1437,6 +1469,7 @@ function initRewardModal() {
       document.getElementById('reward-timer').value = btn.dataset.minutes;
       document.querySelectorAll('#reward-modal .preset-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      updateLinkedSiteVisibility();
     });
   });
 
@@ -1459,6 +1492,7 @@ function submitReward() {
   const price        = parseInt(document.getElementById('reward-price').value, 10);
   const timerRaw     = parseInt(document.getElementById('reward-timer').value, 10);
   const timerMinutes = (!isNaN(timerRaw) && timerRaw >= 1) ? timerRaw : null;
+  const linkedSite   = timerMinutes ? (document.getElementById('reward-linked-site').value || null) : null;
 
   if (!title) {
     document.getElementById('reward-title').focus();
@@ -1472,9 +1506,9 @@ function submitReward() {
   }
 
   if (editingRewardId) {
-    updateReward(editingRewardId, title, emoji, price, timerMinutes);
+    updateReward(editingRewardId, title, emoji, price, timerMinutes, linkedSite);
   } else {
-    addReward(title, emoji, price, timerMinutes);
+    addReward(title, emoji, price, timerMinutes, linkedSite);
   }
   editingRewardId = null;
   closeModal('reward-modal');
@@ -1772,8 +1806,14 @@ function formatTime(ms) {
   return h > 0 ? `${String(h).padStart(2, '0')}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-/** Start a new countdown timer for a reward */
-function startTimer(title, emoji, minutes) {
+/**
+ * Start a new countdown timer for a reward.
+ * @param {string}      title      - Reward name shown in the floating widget
+ * @param {string}      emoji      - Emoji icon for the widget
+ * @param {number}      minutes    - Timer duration in minutes
+ * @param {string|null} linkedSite - Domain to unblock via the extension while the timer runs
+ */
+function startTimer(title, emoji, minutes, linkedSite) {
   const totalMs = minutes * 60 * 1000;
   const timer = {
     id:              `timer-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1784,12 +1824,26 @@ function startTimer(title, emoji, minutes) {
     paused:          false,
     pausedRemaining: null,
     finished:        false,
+    linkedSite:      linkedSite || null,
   };
   state.activeTimers.push(timer);
   saveState();
   renderTimers();
   startTimerTick();
   showToast(`⏱️ Timer started: ${escapeHtml(title)} (${minutes} min)`, 'info');
+
+  // Notify the extension to unblock the linked site
+  if (linkedSite) {
+    extensionSendMessage({
+      type: 'QUESTLIFE_START_TIMER',
+      data: {
+        id:         timer.id,
+        domain:     linkedSite,
+        rewardName: title,
+        duration:   minutes * 60,
+      },
+    });
+  }
 }
 
 /** Pause or resume a timer by id */
@@ -1802,10 +1856,18 @@ function pauseTimer(timerId) {
     timer.endTime         = Date.now() + timer.pausedRemaining;
     timer.paused          = false;
     timer.pausedRemaining = null;
+    // Notify extension to resume block lift
+    if (timer.linkedSite) {
+      extensionSendMessage({ type: 'QUESTLIFE_RESUME_TIMER', data: { id: timerId } });
+    }
   } else {
     // Pause: store remaining ms
     timer.pausedRemaining = Math.max(0, timer.endTime - Date.now());
     timer.paused          = true;
+    // Notify extension to re-block while paused
+    if (timer.linkedSite) {
+      extensionSendMessage({ type: 'QUESTLIFE_PAUSE_TIMER', data: { id: timerId } });
+    }
   }
   saveState();
   renderTimers();
@@ -1813,6 +1875,10 @@ function pauseTimer(timerId) {
 
 /** Remove a timer */
 function stopTimer(timerId) {
+  const timer = state.activeTimers.find(t => t.id === timerId);
+  if (timer && timer.linkedSite) {
+    extensionSendMessage({ type: 'QUESTLIFE_STOP_TIMER', data: { id: timerId } });
+  }
   state.activeTimers = state.activeTimers.filter(t => t.id !== timerId);
   saveState();
   renderTimers();
@@ -1889,7 +1955,7 @@ function renderTimers() {
       <div class="timer-widget${finished ? ' finished' : ''}" data-timer-id="${timer.id}">
         <span class="timer-emoji">${escapeHtml(timer.emoji)}</span>
         <div class="timer-info">
-          <div class="timer-title">${escapeHtml(timer.title)}</div>
+          <div class="timer-title">${escapeHtml(timer.title)}${timer.linkedSite ? ` <span class="timer-site-badge">🔓 ${escapeHtml(timer.linkedSite)}</span>` : ''}</div>
           <div class="timer-time ${timeClass}">${timeDisplay}</div>
         </div>
         <div class="timer-controls">
@@ -2717,7 +2783,7 @@ function initResetModal() {
       'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
       'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats', 'qm_activeTimers',
       'qm_inflationData', 'qm_integrityData', 'qm_debtStats', 'qm_timerStats',
-      'qm_dreams', 'qm_completedDreams', 'qm_dreamStats',
+      'qm_dreams', 'qm_completedDreams', 'qm_dreamStats', 'qm_blockedSites',
     ];
     keys.forEach(k => localStorage.removeItem(k));
     location.reload();
@@ -2728,6 +2794,193 @@ function initResetModal() {
   modal.addEventListener('click', e => {
     if (e.target === e.currentTarget) closeModal('reset-modal');
   });
+}
+
+// ==========================================
+// Chrome Extension Integration
+// ==========================================
+
+/** Whether the QuestLife extension is installed and responding */
+let extensionConnected = false;
+
+/**
+ * Send a message to the background service worker via the content script bridge.
+ * The content script listens for window.postMessage and forwards to chrome.runtime.
+ */
+function extensionSendMessage(message) {
+  window.postMessage(message, '*');
+}
+
+/** Listen for messages relayed back from the extension */
+window.addEventListener('message', event => {
+  if (!event.data || typeof event.data !== 'object') return;
+  if (event.data._from !== 'questlife_extension') return;
+
+  const { type, data } = event.data;
+
+  switch (type) {
+    case 'QUESTLIFE_PONG':
+      if (!extensionConnected) {
+        extensionConnected = true;
+        updateExtensionStatus(true);
+        // Send current state to the extension on first connect
+        syncExtensionState();
+      }
+      break;
+
+    case 'QUESTLIFE_TIMER_EXPIRED': {
+      // Extension tells us a timer has expired — mark it finished in site state
+      const timer = state.activeTimers.find(t => t.id === data.id);
+      if (timer && !timer.finished) {
+        timer.finished = true;
+        saveState();
+        renderTimers();
+        showToast(`⏰ Время вышло! ${escapeHtml(data.domain)} заблокирован`, 'warning');
+      }
+      break;
+    }
+
+    case 'QUESTLIFE_TIMER_PAUSED':
+    case 'QUESTLIFE_TIMER_RESUMED':
+    case 'QUESTLIFE_TIMER_STOPPED':
+      // Extension confirms action — re-render timers
+      renderTimers();
+      break;
+
+    case 'QUESTLIFE_OVERTIME_PENALTY': {
+      // Deduct coins for each overtime incident
+      const count = (data.penalties || []).length;
+      if (count > 0) {
+        state.userStats.coins -= count;
+        saveState();
+        updateHeader();
+        showToast(`😬 Штраф за перебор: -${count} 🪙`, 'warning');
+      }
+      break;
+    }
+  }
+});
+
+/** Update the extension status indicator in the UI */
+function updateExtensionStatus(connected) {
+  const icon = document.getElementById('ext-status-icon');
+  const text = document.getElementById('ext-status-text');
+  const link = document.getElementById('ext-install-link');
+  if (!icon || !text) return;
+
+  if (connected) {
+    icon.textContent = '🧩';
+    text.textContent = 'Расширение QuestLife подключено ✅';
+    if (link) link.style.display = 'none';
+  } else {
+    icon.textContent = '⚠️';
+    text.textContent = 'Расширение не установлено';
+    if (link) link.style.display = 'inline';
+  }
+}
+
+/** Sync current site state to the extension */
+function syncExtensionState() {
+  extensionSendMessage({
+    type: 'QUESTLIFE_SYNC',
+    data: {
+      level:        state.userStats.level,
+      coins:        state.userStats.coins,
+      blockedSites: state.blockedSites,
+    },
+  });
+}
+
+/**
+ * Show or hide the linked-site <select> in the reward modal
+ * depending on whether a timer duration is entered.
+ */
+function updateLinkedSiteVisibility() {
+  const timerVal = document.getElementById('reward-timer').value;
+  const group    = document.getElementById('reward-linked-site-group');
+  if (!group) return;
+  const hasTimer = timerVal && parseInt(timerVal, 10) >= 1;
+  group.style.display = hasTimer ? '' : 'none';
+}
+
+/** Populate the linked-site <select> with the current blockedSites list */
+function populateLinkedSiteSelect() {
+  const sel = document.getElementById('reward-linked-site');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Не привязывать сайт —</option>';
+  state.blockedSites.forEach(domain => {
+    const opt = document.createElement('option');
+    opt.value       = domain;
+    opt.textContent = domain;
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+}
+
+/** Render the blocked-sites management list in the rewards section */
+function renderBlockedSites() {
+  populateLinkedSiteSelect();
+
+  const list = document.getElementById('blocked-sites-list');
+  if (!list) return;
+
+  if (state.blockedSites.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;padding:0.4rem 0;">Список пуст</div>';
+    return;
+  }
+
+  list.innerHTML = state.blockedSites.map(domain => `
+    <div class="blocked-site-item" data-domain="${escapeHtml(domain)}">
+      <span class="blocked-site-domain">🔒 ${escapeHtml(domain)}</span>
+      <button class="btn btn-ghost btn-sm blocked-site-remove" data-domain="${escapeHtml(domain)}" title="Удалить">✕</button>
+    </div>`).join('');
+
+  list.querySelectorAll('.blocked-site-remove').forEach(btn => {
+    btn.addEventListener('click', () => removeBlockedSite(btn.dataset.domain));
+  });
+}
+
+/** Add a domain to the blocked-sites list */
+function addBlockedSite(domain) {
+  domain = domain.trim().toLowerCase().replace(/^www\./, '').replace(/\/.*$/, '');
+  if (!domain) return;
+  if (state.blockedSites.includes(domain)) {
+    showToast(`${domain} уже в списке`, 'info');
+    return;
+  }
+  state.blockedSites.push(domain);
+  saveState();
+  renderBlockedSites();
+  // Notify extension
+  extensionSendMessage({ type: 'QUESTLIFE_SYNC', data: { blockedSites: state.blockedSites } });
+  showToast(`🔒 ${domain} добавлен в список`, 'success');
+}
+
+/** Remove a domain from the blocked-sites list */
+function removeBlockedSite(domain) {
+  state.blockedSites = state.blockedSites.filter(d => d !== domain);
+  saveState();
+  renderBlockedSites();
+  extensionSendMessage({ type: 'QUESTLIFE_SYNC', data: { blockedSites: state.blockedSites } });
+  showToast(`🔓 ${domain} удалён из списка`, 'info');
+}
+
+/** Initialise the blocked-sites UI (add-site input + button) */
+function initBlockedSitesUI() {
+  const addBtn   = document.getElementById('add-blocked-site-btn');
+  const addInput = document.getElementById('new-blocked-site');
+  if (!addBtn || !addInput) return;
+
+  const doAdd = () => {
+    const val = addInput.value.trim();
+    if (!val) return;
+    addBlockedSite(val);
+    addInput.value = '';
+  };
+
+  addBtn.addEventListener('click', doAdd);
+  addInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
 }
 
 // ==========================================
@@ -2763,6 +3016,17 @@ function init() {
   renderDreams();
   renderAchievedDreams();
   updateAchievedDreamsCount();
+
+  // Extension integration
+  renderBlockedSites();
+  initBlockedSitesUI();
+  updateExtensionStatus(false);   // default: not connected until PONG
+  // Ping the extension — the content script will reply with QUESTLIFE_PONG
+  extensionSendMessage({ type: 'QUESTLIFE_PING' });
+  // If pong doesn't arrive within 1 second, assume extension is absent
+  setTimeout(() => {
+    if (!extensionConnected) updateExtensionStatus(false);
+  }, 1000);
 
   // Restore persisted timers and start the tick loop if any are active
   if (state.activeTimers.length > 0) {

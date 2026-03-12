@@ -1,0 +1,197 @@
+/* ==========================================
+   QuestLife Extension — popup.css
+   Dark minimalist theme matching the website
+   ========================================== */
+
+:root {
+  --bg-primary:   #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-card:      #1a1a2e;
+  --border:       #2a2a3e;
+  --text-primary: #ffffff;
+  --text-muted:   #6b6b85;
+  --accent:       #7c3aed;
+  --accent-light: #9f5ef0;
+  --green:        #10b981;
+  --yellow:       #f59e0b;
+  --red:          #ef4444;
+  --coin:         #fbbf24;
+  --radius:       10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 360px;
+  min-height: 200px;
+  max-height: 580px;
+  overflow-y: auto;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ── Header ───────────────────────────── */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.popup-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.popup-icon { font-size: 18px; }
+
+.popup-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.popup-level { color: var(--accent-light); font-weight: 600; }
+.popup-coins { color: var(--coin); font-weight: 600; }
+
+/* ── Status bar ───────────────────────── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.status-bar.connected    { color: var(--green); }
+.status-bar.disconnected { color: var(--text-muted); }
+
+/* ── Sections ─────────────────────────── */
+.popup-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ── Timer widgets ────────────────────── */
+.timers-list { display: flex; flex-direction: column; gap: 6px; }
+
+.empty-msg { color: var(--text-muted); font-size: 12px; text-align: center; padding: 6px 0; }
+
+.timer-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+
+.timer-emoji { font-size: 18px; flex-shrink: 0; }
+
+.timer-info { flex: 1; min-width: 0; }
+
+.timer-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timer-domain { font-size: 11px; color: var(--text-muted); }
+
+.timer-time {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-light);
+}
+
+.timer-time.urgent  { color: var(--yellow); }
+.timer-time.paused  { color: var(--text-muted); }
+.timer-time.expired { color: var(--red); }
+
+.timer-controls { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* ── Sites list ───────────────────────── */
+.sites-list { display: flex; flex-direction: column; gap: 4px; }
+
+.site-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.site-domain { flex: 1; }
+
+.site-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.site-status.blocked    { color: var(--red);   background: rgba(239,68,68,.15); }
+.site-status.unlocked   { color: var(--green); background: rgba(16,185,129,.15); }
+
+/* ── Buttons ──────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+
+.btn:hover  { opacity: .85; }
+.btn:active { opacity: .7; }
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-ghost   { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-danger  { background: var(--red); color: #fff; }
+.btn-icon    { padding: 4px 7px; font-size: 13px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); }
+
+/* ── Quick actions ────────────────────── */
+.quick-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.quick-actions .btn { flex: 1; padding: 8px; }
