@@ -460,10 +460,11 @@
         </div>
         <!-- Linked site for extension blocking (shown only if timer is set) -->
         <div class="form-group" id="reward-linked-site-group" style="display:none;">
-          <label class="form-label" for="reward-linked-site">🔓 Разблокировать сайт <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(расширение QuestLife)</small></label>
+          <label class="form-label" for="reward-linked-site">🔗 Привязать к сайту <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(расширение QuestLife разблокирует на время таймера)</small></label>
           <select class="form-input" id="reward-linked-site">
-            <option value="">— Не привязывать сайт —</option>
+            <option value="">— Нет привязки —</option>
           </select>
+          <input class="form-input" type="text" id="reward-linked-site-custom" placeholder="например: discord.com" maxlength="100" autocomplete="off" style="display:none; margin-top:0.5rem;">
         </div>
       </div>
       <div class="modal-footer">

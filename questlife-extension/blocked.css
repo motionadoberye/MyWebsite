@@ -106,6 +106,65 @@ html, body {
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-accent  { background: var(--green);  color: #fff; padding: 0.5rem 1rem; font-size: 0.9rem; }
 
+/* Linked rewards section */
+.linked-rewards {
+  width: 100%;
+  background: rgba(16,185,129,.1);
+  border: 1px solid rgba(16,185,129,.25);
+  border-radius: 12px;
+  padding: 0.9rem 1.2rem;
+  text-align: left;
+}
+
+.linked-rewards-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--green);
+  margin-bottom: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.linked-reward-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  flex-wrap: wrap;
+}
+
+.linked-reward-item:last-child { border-bottom: none; }
+
+.linked-reward-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.linked-reward-price {
+  color: var(--coin);
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.btn-buy {
+  background: var(--green);
+  color: #fff;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.linked-reward-timer {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 /* Quote */
 .quote {
   margin-top: 0.5rem;

@@ -340,7 +340,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
 
       case 'QUESTLIFE_SYNC':
-        // Website sent updated state (level, coins, blocked sites list)
+        // Website sent updated state (level, coins, blocked sites list, rewards)
         if (message.data.blockedSites) {
           await storageSet({ blockedSites: message.data.blockedSites });
           await rebuildBlockingRules();
@@ -352,6 +352,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
               coins:  message.data.coins,
             },
           });
+        }
+        // Store rewards so blocked.html can suggest "Buy and unlock" options
+        if (Array.isArray(message.data.rewards)) {
+          await storageSet({ questLifeRewards: message.data.rewards });
         }
         sendResponse({ ok: true });
         break;

@@ -43,6 +43,15 @@ function getRemainingSeconds(timer) {
   return Math.max(0, timer.duration - timer.elapsed - (now - startSec));
 }
 
+/** Escape HTML to prevent XSS */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 async function init() {
@@ -56,16 +65,17 @@ async function init() {
   const quote = QUOTES[Math.floor(Math.random() * QUOTES.length)];
   document.getElementById('quote').textContent = `"${quote}"`;
 
-  // Open QuestLife button
+  // Open QuestLife button (rewards tab)
   document.getElementById('open-questlife-btn').addEventListener('click', () => {
-    window.location.href = QUESTLIFE_URL;
+    window.location.href = QUESTLIFE_URL + '#rewards';
   });
 
   // Load state from extension storage
   try {
-    const { activeTimers, questLifeStats } = await chrome.storage.local.get([
+    const { activeTimers, questLifeStats, questLifeRewards } = await chrome.storage.local.get([
       'activeTimers',
       'questLifeStats',
+      'questLifeRewards',
     ]);
 
     // Show coin balance if available
@@ -73,6 +83,35 @@ async function init() {
       const coinBadge = document.getElementById('coin-badge');
       document.getElementById('coin-amount').textContent = questLifeStats.coins;
       coinBadge.style.display = 'flex';
+    }
+
+    // Show rewards that can unlock this domain
+    const rewards = Array.isArray(questLifeRewards) ? questLifeRewards : [];
+    const linkedRewards = rewards.filter(r => r.linkedSite === domain && r.timerMinutes);
+    if (linkedRewards.length > 0) {
+      const section = document.getElementById('linked-rewards');
+      const list    = document.getElementById('linked-rewards-list');
+      section.style.display = '';
+
+      list.innerHTML = linkedRewards.map(r => `
+        <div class="linked-reward-item">
+          <div class="linked-reward-info">
+            <span>${escHtml(r.emoji || '🎁')}</span>
+            <span>${escHtml(r.title)}</span>
+            ${r.timerMinutes ? `<span class="linked-reward-timer">⏱️ ${r.timerMinutes} мин</span>` : ''}
+          </div>
+          <span class="linked-reward-price">🪙 ${escHtml(String(r.price))}</span>
+          <button class="btn btn-buy">🔓 Купить</button>
+        </div>`).join('');
+
+      // "Buy and unlock" — opens QuestLife rewards tab
+      list.querySelectorAll('.btn-buy').forEach(btn => {
+        btn.addEventListener('click', () => {
+          // Navigate to QuestLife; the user will buy the reward manually
+          // (cross-origin purchasing from a chrome-extension page isn't possible)
+          chrome.tabs.create({ url: QUESTLIFE_URL + '#rewards' });
+        });
+      });
     }
 
     // Check if there is a paused timer for this domain
