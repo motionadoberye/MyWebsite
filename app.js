@@ -646,6 +646,8 @@ function addReward(title, emoji, price, timerMinutes, linkedSite) {
   saveState();
   renderRewards();
   showToast(`Reward "${escapeHtml(title)}" added!`, 'info');
+  // Keep the extension in sync (so blocked.html can suggest this reward)
+  if (extensionConnected) syncExtensionState();
 }
 
 /** Remove a reward from the shop */
@@ -1424,7 +1426,21 @@ function openRewardEditModal(rewardId) {
   // Show linked-site selector if timer is set
   updateLinkedSiteVisibility();
   if (reward.linkedSite) {
-    document.getElementById('reward-linked-site').value = reward.linkedSite;
+    // Populate select first, then set value
+    // If the linkedSite is in the blockedSites list, select it; otherwise use custom input
+    if (state.blockedSites.includes(reward.linkedSite)) {
+      populateLinkedSiteSelect(reward.linkedSite);
+    } else {
+      // Use custom domain input
+      populateLinkedSiteSelect('__custom__');
+      const customInput = document.getElementById('reward-linked-site-custom');
+      if (customInput) {
+        customInput.style.display = '';
+        customInput.value = reward.linkedSite;
+      }
+    }
+  } else {
+    populateLinkedSiteSelect('');
   }
   openModal('reward-modal');
   setTimeout(() => document.getElementById('reward-title').focus(), 100);
@@ -1441,6 +1457,7 @@ function updateReward(rewardId, title, emoji, price, timerMinutes, linkedSite) {
   saveState();
   renderRewards();
   showToast(`Reward updated! ✏️`, 'info');
+  if (extensionConnected) syncExtensionState();
 }
 
 function initRewardModal() {
@@ -1452,7 +1469,10 @@ function initRewardModal() {
     document.getElementById('reward-emoji').value = '';
     document.getElementById('reward-price').value = '';
     document.getElementById('reward-timer').value = '';
-    document.getElementById('reward-linked-site').value = '';
+    // Reset linked-site to "no binding"
+    populateLinkedSiteSelect('');
+    const customInput = document.getElementById('reward-linked-site-custom');
+    if (customInput) { customInput.value = ''; customInput.style.display = 'none'; }
     // Clear active preset highlight
     document.querySelectorAll('#reward-modal .preset-btn').forEach(b => b.classList.remove('active'));
     updateLinkedSiteVisibility();
@@ -1473,6 +1493,9 @@ function initRewardModal() {
     });
   });
 
+  // Show/hide custom domain input when "Other domain…" is selected
+  document.getElementById('reward-linked-site').addEventListener('change', updateLinkedSiteCustomInput);
+
   document.getElementById('close-reward-modal').addEventListener('click', () => closeModal('reward-modal'));
   document.getElementById('cancel-reward-btn').addEventListener('click', () => closeModal('reward-modal'));
   document.getElementById('save-reward-btn').addEventListener('click', submitReward);
@@ -1492,7 +1515,7 @@ function submitReward() {
   const price        = parseInt(document.getElementById('reward-price').value, 10);
   const timerRaw     = parseInt(document.getElementById('reward-timer').value, 10);
   const timerMinutes = (!isNaN(timerRaw) && timerRaw >= 1) ? timerRaw : null;
-  const linkedSite   = timerMinutes ? (document.getElementById('reward-linked-site').value || null) : null;
+  const linkedSite   = timerMinutes ? getLinkedSiteValue() : null;
 
   if (!title) {
     document.getElementById('reward-title').focus();
@@ -1503,6 +1526,15 @@ function submitReward() {
     document.getElementById('reward-price').focus();
     showToast('Please enter a valid price (≥ 1)!', 'warning');
     return;
+  }
+  // Validate custom domain input when "custom" is selected
+  if (timerMinutes) {
+    const sel = document.getElementById('reward-linked-site');
+    if (sel && sel.value === '__custom__' && !linkedSite) {
+      document.getElementById('reward-linked-site-custom').focus();
+      showToast('Please enter a domain to link (e.g. discord.com)', 'warning');
+      return;
+    }
   }
 
   if (editingRewardId) {
@@ -1924,7 +1956,12 @@ function updateTimerDisplays() {
     }
   });
 
-  if (needsFullRender) renderTimers();
+  if (needsFullRender) {
+    renderTimers();
+  } else {
+    // Keep blocked-site statuses live (e.g. countdown minutes)
+    refreshBlockedSiteStatuses();
+  }
 }
 
 /** Render all floating timer widgets */
@@ -1934,6 +1971,7 @@ function renderTimers() {
 
   if (state.activeTimers.length === 0) {
     container.innerHTML = '';
+    refreshBlockedSiteStatuses();
     return;
   }
 
@@ -1975,6 +2013,9 @@ function renderTimers() {
   container.querySelectorAll('[data-action="timer-stop"]').forEach(btn => {
     btn.addEventListener('click', () => stopTimer(btn.dataset.timerId));
   });
+
+  // Update blocked-site status badges to reflect current timer state
+  refreshBlockedSiteStatuses();
 }
 
 // ==========================================
@@ -2887,6 +2928,15 @@ function syncExtensionState() {
       level:        state.userStats.level,
       coins:        state.userStats.coins,
       blockedSites: state.blockedSites,
+      // Include rewards so blocked.html can show "Buy and unlock" suggestions
+      rewards:      state.rewards.map(r => ({
+        id:           r.id,
+        title:        r.title,
+        emoji:        r.emoji,
+        price:        r.price,
+        timerMinutes: r.timerMinutes,
+        linkedSite:   r.linkedSite || null,
+      })),
     },
   });
 }
@@ -2901,24 +2951,113 @@ function updateLinkedSiteVisibility() {
   if (!group) return;
   const hasTimer = timerVal && parseInt(timerVal, 10) >= 1;
   group.style.display = hasTimer ? '' : 'none';
+  if (!hasTimer) {
+    // Also hide custom input when timer is cleared
+    const customInput = document.getElementById('reward-linked-site-custom');
+    if (customInput) customInput.style.display = 'none';
+  }
 }
 
-/** Populate the linked-site <select> with the current blockedSites list */
-function populateLinkedSiteSelect() {
+/** Show or hide the custom domain input based on select value */
+function updateLinkedSiteCustomInput() {
+  const sel         = document.getElementById('reward-linked-site');
+  const customInput = document.getElementById('reward-linked-site-custom');
+  if (!sel || !customInput) return;
+  if (sel.value === '__custom__') {
+    customInput.style.display = '';
+    customInput.focus();
+  } else {
+    customInput.style.display = 'none';
+  }
+}
+
+/** Populate the linked-site <select> with the current blockedSites list + custom option */
+function populateLinkedSiteSelect(preserveValue) {
   const sel = document.getElementById('reward-linked-site');
   if (!sel) return;
-  const current = sel.value;
-  sel.innerHTML = '<option value="">— Не привязывать сайт —</option>';
-  state.blockedSites.forEach(domain => {
+  // Remember the previously selected value so we can restore it
+  const prev = preserveValue !== undefined ? preserveValue : sel.value;
+
+  sel.innerHTML = '<option value="">— Нет привязки —</option>';
+
+  // Collect all domains: saved list + any extras already shown
+  const domains = [...state.blockedSites];
+
+  domains.forEach(domain => {
     const opt = document.createElement('option');
     opt.value       = domain;
     opt.textContent = domain;
     sel.appendChild(opt);
   });
-  if (current) sel.value = current;
+
+  // "Enter custom domain" option at the bottom
+  const customOpt = document.createElement('option');
+  customOpt.value       = '__custom__';
+  customOpt.textContent = '🌐 Другой домен…';
+  sel.appendChild(customOpt);
+
+  // Restore previous value
+  if (prev === '__custom__') {
+    sel.value = '__custom__';
+  } else if (prev) {
+    // If the previous value is a domain not in the list, add it temporarily
+    const exists = domains.includes(prev);
+    if (!exists) {
+      const tmpOpt = document.createElement('option');
+      tmpOpt.value       = prev;
+      tmpOpt.textContent = prev;
+      // Insert before the custom option
+      sel.insertBefore(tmpOpt, customOpt);
+    }
+    sel.value = prev;
+  }
 }
 
-/** Render the blocked-sites management list in the rewards section */
+/**
+ * Get the resolved linked-site value from the modal:
+ * either the selected domain or the custom input value.
+ */
+function getLinkedSiteValue() {
+  const sel = document.getElementById('reward-linked-site');
+  if (!sel) return null;
+  if (sel.value === '__custom__') {
+    const customInput = document.getElementById('reward-linked-site-custom');
+    const raw = customInput ? customInput.value.trim().toLowerCase().replace(/^www\./, '').replace(/\/.*$/, '') : '';
+    return raw || null;
+  }
+  return sel.value || null;
+}
+
+
+/**
+ * Find an active (running or paused, not yet finished) timer for a given domain.
+ * @param {string} domain
+ * @returns {object|undefined}
+ */
+function findActiveTimerForDomain(domain) {
+  const now = Date.now();
+  return state.activeTimers.find(t =>
+    t.linkedSite === domain && !t.finished &&
+    (t.paused || t.endTime > now)
+  );
+}
+
+/** Build the HTML string for a blocked-site status badge */
+function blockedSiteStatusHtml(domain) {
+  const now   = Date.now();
+  const timer = findActiveTimerForDomain(domain);
+  if (timer) {
+    if (timer.paused) {
+      const remainMin = Math.ceil((timer.pausedRemaining || 0) / 60000);
+      return `<span class="blocked-site-status unlocked">🔓 На паузе (${remainMin} мин)</span>`;
+    }
+    const remainMin = Math.ceil(Math.max(0, timer.endTime - now) / 60000);
+    return `<span class="blocked-site-status unlocked">🔓 Открыт (${remainMin} мин)</span>`;
+  }
+  return `<span class="blocked-site-status blocked">🔒 Заблокирован</span>`;
+}
+
+/** Render the blocked-sites management list in the rewards section with timer status */
 function renderBlockedSites() {
   populateLinkedSiteSelect();
 
@@ -2932,12 +3071,46 @@ function renderBlockedSites() {
 
   list.innerHTML = state.blockedSites.map(domain => `
     <div class="blocked-site-item" data-domain="${escapeHtml(domain)}">
-      <span class="blocked-site-domain">🔒 ${escapeHtml(domain)}</span>
+      <span class="blocked-site-domain">${escapeHtml(domain)}</span>
+      ${blockedSiteStatusHtml(domain)}
       <button class="btn btn-ghost btn-sm blocked-site-remove" data-domain="${escapeHtml(domain)}" title="Удалить">✕</button>
     </div>`).join('');
 
   list.querySelectorAll('.blocked-site-remove').forEach(btn => {
     btn.addEventListener('click', () => removeBlockedSite(btn.dataset.domain));
+  });
+}
+
+/**
+ * Lightweight refresh of the blocked-site status badges only (no DOM rebuild).
+ * Called from the timer tick so statuses stay live without rebuilding the full list.
+ */
+function refreshBlockedSiteStatuses() {
+  const list = document.getElementById('blocked-sites-list');
+  if (!list) return;
+
+  list.querySelectorAll('.blocked-site-item').forEach(item => {
+    const domain = item.dataset.domain;
+    if (!domain) return;
+    const statusEl = item.querySelector('.blocked-site-status');
+    if (!statusEl) return;
+
+    const timer = findActiveTimerForDomain(domain);
+    const now   = Date.now();
+
+    if (timer) {
+      statusEl.className = 'blocked-site-status unlocked';
+      if (timer.paused) {
+        const remainMin = Math.ceil((timer.pausedRemaining || 0) / 60000);
+        statusEl.textContent = `🔓 На паузе (${remainMin} мин)`;
+      } else {
+        const remainMin = Math.ceil(Math.max(0, timer.endTime - now) / 60000);
+        statusEl.textContent = `🔓 Открыт (${remainMin} мин)`;
+      }
+    } else {
+      statusEl.className  = 'blocked-site-status blocked';
+      statusEl.textContent = '🔒 Заблокирован';
+    }
   });
 }
 

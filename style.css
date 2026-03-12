@@ -1850,6 +1850,23 @@ body {
 
 .blocked-site-domain { flex: 1; }
 
+/* Status badge: 🔒 blocked / 🔓 unlocked */
+.blocked-site-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.blocked-site-status.blocked {
+  color: #f87171;
+  background: rgba(239,68,68,.12);
+}
+.blocked-site-status.unlocked {
+  color: #34d399;
+  background: rgba(16,185,129,.15);
+}
+
 .blocked-site-add {
   display: flex;
   gap: 0.5rem;
