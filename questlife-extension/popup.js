@@ -158,9 +158,13 @@ async function refresh() {
 // Check if any QuestLife tab is open (heuristic: check if stats are synced)
 async function checkConnection() {
   const tabs = await chrome.tabs.query({});
-  const connected = tabs.some(t =>
-    t.url && (t.url.includes('motionadoberye.github.io') || t.url.includes('localhost'))
-  );
+  const connected = tabs.some(t => {
+    if (!t.url) return false;
+    try {
+      const u = new URL(t.url);
+      return u.hostname === 'motionadoberye.github.io' || u.hostname === 'localhost';
+    } catch (_) { return false; }
+  });
   renderStatus(connected);
 }
 
