@@ -2355,9 +2355,10 @@ function migrateDreamsToStages() {
     if (!dream.stages) {
       if (dream.totalStages > 0) {
         dream.stages = [];
+        const base = Date.now();
         for (let i = 1; i <= dream.totalStages; i++) {
           dream.stages.push({
-            id:          `s-${Date.now()}-${Math.random().toString(36).slice(2)}-${i}`,
+            id:          `s-${base}-${Math.random().toString(36).slice(2)}-${i}`,
             title:       `Stage ${i}`,
             coinsReward: 0,
             xpReward:    0,
@@ -2982,12 +2983,13 @@ function moveDreamStageUI(row, direction) {
 function getDreamStagesFromForm() {
   const container = document.getElementById('dream-stages-list');
   if (!container) return [];
+  const base = Date.now();
   return Array.from(container.querySelectorAll('.dream-stage-row')).map((row, idx) => {
     const title       = row.querySelector('.stage-title-input').value.trim();
     const coinsReward = parseInt(row.querySelector('.stage-coins-input').value, 10) || 0;
     const xpReward    = parseInt(row.querySelector('.stage-xp-input').value,    10) || 0;
     return {
-      id:          row.dataset.stageId || `s-${Date.now()}-${Math.random().toString(36).slice(2)}-${idx}`,
+      id:          row.dataset.stageId || `s-${base}-${Math.random().toString(36).slice(2)}-${idx}`,
       title:       title || `Stage ${idx + 1}`,
       coinsReward,
       xpReward,
