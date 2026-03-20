@@ -63,13 +63,14 @@ let state = {
   rewards:          [],   // available rewards in the shop
   purchasedRewards: [],   // history of purchased rewards
   userStats: {
-    level:            1,
-    xp:               0,
-    coins:            0,
-    currentStreak:    0,
-    bestStreak:       0,
-    totalXpEarned:    0,
-    totalCoinsEarned: 0,
+    level:              1,
+    xp:                 0,
+    coins:              0,
+    currentStreak:      0,
+    bestStreak:         0,
+    totalXpEarned:      0,
+    totalCoinsEarned:   0,
+    freeRewardUsedDate: null,  // 'YYYY-MM-DD' — date the daily free reward was used
   },
   activityLog:  {},  // { "YYYY-MM-DD": completedCount }
   dailyTasks:   [],  // recurring daily quest objects
@@ -709,6 +710,44 @@ function buyReward(rewardId) {
   }
 }
 
+/** Check whether the daily free reward is still available today */
+function isFreeRewardAvailable() {
+  return state.userStats.freeRewardUsedDate !== todayStr();
+}
+
+/** Purchase a reward for free (daily once-per-day perk) — no coins deducted */
+function buyRewardFree(rewardId) {
+  const reward = state.rewards.find(r => r.id === rewardId);
+  if (!reward) return;
+  if (!isFreeRewardAvailable()) {
+    showToast('🎁 Бесплатная награда уже использована сегодня', 'warning');
+    return;
+  }
+
+  state.userStats.freeRewardUsedDate = todayStr();
+
+  const purchase = {
+    ...reward,
+    purchaseId:  `p-${Date.now()}`,
+    purchasedAt: new Date().toISOString(),
+    pricePaid:   0,
+    wasFree:     true,
+  };
+  state.purchasedRewards.unshift(purchase);
+
+  saveState();
+  renderRewards();
+  renderPurchasedRewards();
+  updateHeader();
+
+  showToast('🎁 Бесплатная награда использована. Следующая будет доступна завтра.', 'success');
+
+  // Start countdown timer if the reward has one
+  if (reward.timerMinutes) {
+    startTimer(reward.title, reward.emoji, reward.timerMinutes, reward.linkedSite);
+  }
+}
+
 // ==========================================
 // Render — Header
 // ==========================================
@@ -891,6 +930,16 @@ function updateCompletedCount() {
 function renderRewards() {
   const container = document.getElementById('rewards-list');
 
+  // Update the free reward status banner
+  const freeAvail = isFreeRewardAvailable();
+  const banner = document.getElementById('free-reward-banner');
+  if (banner) {
+    banner.className = `free-reward-banner${freeAvail ? '' : ' used'}`;
+    banner.innerHTML = freeAvail
+      ? `🎁 Бесплатная награда сегодня: <strong>Доступна</strong>`
+      : `🎁 Бесплатная награда сегодня: <span class="free-reward-used-text">Использована</span>`;
+  }
+
   if (state.rewards.length === 0) {
     container.innerHTML = `
       <div class="empty-state" style="grid-column: 1 / -1;">
@@ -921,6 +970,11 @@ function renderRewards() {
     const buyLabel = canAfford ? 'Купить' : '💳 В кредит';
     const buyClass = canAfford ? 'btn-green' : 'btn-credit';
 
+    // Free reward button (shown only when the daily free perk is available)
+    const freeBtnHtml = freeAvail
+      ? `<button class="btn btn-free btn-sm" data-action="buy-free" data-id="${r.id}" title="Бесплатно 1 раз в день">🎁 Бесплатно</button>`
+      : '';
+
     return `
     <div class="reward-card">
       <span class="reward-emoji">${escapeHtml(r.emoji)}</span>
@@ -929,6 +983,7 @@ function renderRewards() {
       ${priceHtml}
       <div class="reward-actions">
         <button class="btn ${buyClass} btn-sm" data-action="buy" data-id="${r.id}">${buyLabel}</button>
+        ${freeBtnHtml}
         <button class="btn btn-edit btn-sm" data-action="edit-reward" data-id="${r.id}" title="Edit reward">✏️</button>
         <button class="btn btn-danger btn-sm" data-action="del-reward" data-id="${r.id}" title="Remove reward">✕</button>
       </div>
@@ -937,6 +992,9 @@ function renderRewards() {
 
   container.querySelectorAll('[data-action="buy"]').forEach(btn => {
     btn.addEventListener('click', () => buyReward(btn.dataset.id));
+  });
+  container.querySelectorAll('[data-action="buy-free"]').forEach(btn => {
+    btn.addEventListener('click', () => buyRewardFree(btn.dataset.id));
   });
   container.querySelectorAll('[data-action="del-reward"]').forEach(btn => {
     btn.addEventListener('click', () => deleteReward(btn.dataset.id));
@@ -967,6 +1025,9 @@ function renderPurchasedRewards() {
     const dateLabel = new Date(r.purchasedAt).toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
     });
+    const priceDisplay = r.wasFree
+      ? `<span class="purchased-price-free">🎁 FREE</span>`
+      : `<div class="purchased-price">-${r.pricePaid || r.price} 🪙</div>`;
     return `
       <div class="purchased-item">
         <div class="purchased-info">
@@ -976,7 +1037,7 @@ function renderPurchasedRewards() {
             <div class="purchased-date">${dateLabel}</div>
           </div>
         </div>
-        <div class="purchased-price">-${r.pricePaid || r.price} 🪙</div>
+        ${priceDisplay}
       </div>`;
   }).join('');
 }
@@ -2284,9 +2345,44 @@ function submitDailyTask() {
 let selectedDreamEmoji = '🌟';
 let editingDreamId     = null;
 
+/**
+ * Migrate old-style dreams (totalStages number) to the new stages array format.
+ * Called once at startup after loadState().
+ */
+function migrateDreamsToStages() {
+  let changed = false;
+  state.dreams.forEach(dream => {
+    if (!dream.stages) {
+      if (dream.totalStages > 0) {
+        dream.stages = [];
+        const base = Date.now();
+        for (let i = 1; i <= dream.totalStages; i++) {
+          dream.stages.push({
+            id:          `s-${base}-${Math.random().toString(36).slice(2)}-${i}`,
+            title:       `Stage ${i}`,
+            coinsReward: 0,
+            xpReward:    0,
+            completedAt: null,
+          });
+        }
+        // Mark already-completed stages
+        const done = Math.min(dream.completedStages || 0, dream.stages.length);
+        for (let i = 0; i < done; i++) {
+          dream.stages[i].completedAt = dream.createdAt || new Date().toISOString();
+        }
+      } else {
+        dream.stages = [];
+      }
+      changed = true;
+    }
+  });
+  if (changed) saveState();
+}
+
 /** Create and add a new dream */
-function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty) {
+function addDream(title, desc, emoji, xpReward, coinReward, customReward, stages, timerDurationMs, bonus, penalty) {
   const now = new Date().toISOString();
+  const stagesArr = stages || [];
   const dream = {
     id:             `dream-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title,
@@ -2295,7 +2391,8 @@ function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalS
     xpReward:       Math.max(1, parseInt(xpReward, 10) || 100),
     coinReward:     Math.max(0, parseInt(coinReward, 10) || 0),
     customReward:   customReward || '',
-    totalStages:    Math.max(0, parseInt(totalStages, 10) || 0),
+    stages:         stagesArr,
+    totalStages:    stagesArr.length,
     completedStages: 0,
     timerDurationMs: timerDurationMs || null,
     timerStartTime:  timerDurationMs ? now : null,
@@ -2315,16 +2412,19 @@ function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalS
 }
 
 /** Update an existing dream */
-function updateDream(dreamId, title, desc, emoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty) {
+function updateDream(dreamId, title, desc, emoji, xpReward, coinReward, customReward, stages, timerDurationMs, bonus, penalty) {
   const dream = state.dreams.find(d => d.id === dreamId);
   if (!dream) return;
+  const stagesArr = stages || dream.stages || [];
   dream.title        = title;
   dream.desc         = desc;
   dream.emoji        = emoji || '🌟';
   dream.xpReward     = Math.max(1, parseInt(xpReward, 10) || 100);
   dream.coinReward   = Math.max(0, parseInt(coinReward, 10) || 0);
   dream.customReward = customReward || '';
-  dream.totalStages  = Math.max(0, parseInt(totalStages, 10) || 0);
+  dream.stages       = stagesArr;
+  dream.totalStages  = stagesArr.length;
+  dream.completedStages = stagesArr.filter(s => s.completedAt).length;
   if (timerDurationMs) {
     dream.timerDurationMs = timerDurationMs;
     dream.timerStartTime  = new Date().toISOString();
@@ -2359,10 +2459,55 @@ function deleteAchievedDream(dreamId) {
   updateAchievedDreamsCount();
 }
 
-/** Mark one stage as completed and award partial rewards */
+/** Mark one stage as completed and award its rewards */
 function completeStage(dreamId) {
   const dream = state.dreams.find(d => d.id === dreamId);
-  if (!dream || dream.totalStages === 0 || dream.completedStages >= dream.totalStages) return;
+  if (!dream) return;
+
+  // New-style: stages array with individual rewards
+  if (dream.stages && dream.stages.length > 0) {
+    const nextStage = dream.stages.find(s => !s.completedAt);
+    if (!nextStage) return;
+
+    nextStage.completedAt = new Date().toISOString();
+    dream.completedStages = dream.stages.filter(s => s.completedAt).length;
+    dream.totalStages     = dream.stages.length;
+
+    const stageXp    = nextStage.xpReward    || 0;
+    const stageCoins = nextStage.coinsReward  || 0;
+    const previousCoins = state.userStats.coins;
+
+    if (stageXp > 0) addXP(stageXp);
+    if (stageCoins > 0) {
+      state.userStats.coins            += stageCoins;
+      state.userStats.totalCoinsEarned += stageCoins;
+    }
+    if (stageXp > 0) state.dreamStats.xpFromDreams += stageXp;
+    checkDebtPayoff(previousCoins);
+    recalcStreak();
+    const today = todayStr();
+    state.activityLog[today] = (state.activityLog[today] || 0) + 1;
+    saveState();
+    renderDreams();
+    updateHeader();
+    updateDebtWarning();
+
+    const total = dream.stages.length;
+    let rewardText = '';
+    if (stageXp > 0 && stageCoins > 0) rewardText = ` +${stageXp} XP  +${stageCoins} 🪙`;
+    else if (stageXp > 0)              rewardText = ` +${stageXp} XP`;
+    else if (stageCoins > 0)           rewardText = ` +${stageCoins} 🪙`;
+
+    showToast(`✅ "${escapeHtml(nextStage.title)}" (${dream.completedStages}/${total})${rewardText}`, 'success');
+
+    if (dream.completedStages === total) {
+      setTimeout(() => showToast('🏆 Все этапы завершены! Нажми "Мечта достигнута!"', 'info'), 600);
+    }
+    return;
+  }
+
+  // Legacy: simple stage counter without individual rewards
+  if (!dream.totalStages || dream.completedStages >= dream.totalStages) return;
 
   dream.completedStages++;
   const stageXp    = Math.floor(dream.xpReward    / dream.totalStages);
@@ -2493,20 +2638,26 @@ function renderDreams() {
 
 /** Build HTML for a single dream card */
 function renderDreamCard(dream, now) {
+  // Determine counts — prefer stages array
+  const hasStages    = dream.stages && dream.stages.length > 0;
+  const totalStages  = hasStages ? dream.stages.length : (dream.totalStages || 0);
+  const doneStages   = hasStages ? dream.stages.filter(s => s.completedAt).length : (dream.completedStages || 0);
+
   // Progress bar
   let progressHtml = '';
-  if (dream.totalStages > 0) {
-    const pct = Math.round((dream.completedStages / dream.totalStages) * 100);
+  if (totalStages > 0) {
+    const pct = Math.round((doneStages / totalStages) * 100);
     progressHtml = `
       <div class="dream-progress">
         <div class="dream-progress-label">
-          <span>${dream.completedStages}/${dream.totalStages} этапов (${pct}%)</span>
+          <span>${doneStages}/${totalStages} этапов (${pct}%)</span>
         </div>
         <div class="dream-progress-bar-wrapper">
           <div class="dream-progress-bar" style="width:${pct}%"></div>
         </div>
       </div>`;
   }
+
   // Timer
   let timerHtml = '';
   if (dream.timerDurationMs && dream.timerStartTime) {
@@ -2521,10 +2672,22 @@ function renderDreamCard(dream, now) {
     const display = overdue ? '⚠️ ПРОСРОЧЕНО' : `⏱️ ${formatTaskTime(remaining)}`;
     timerHtml = `<div class="task-timer ${timerClass}" data-deadline="${deadline}" data-duration="${dream.timerDurationMs}">${display}</div>`;
   }
-  // Stage button
-  const stageBtn = dream.totalStages > 0 && dream.completedStages < dream.totalStages
-    ? `<button class="btn btn-stage btn-sm" data-action="stage" data-id="${dream.id}">✅ Отметить этап</button>`
-    : '';
+
+  // Stage button — show next stage title + its rewards when using stages array
+  let stageBtn = '';
+  if (hasStages) {
+    const nextStage = dream.stages.find(s => !s.completedAt);
+    if (nextStage) {
+      const rewards = [];
+      if (nextStage.xpReward)    rewards.push(`+${nextStage.xpReward} XP`);
+      if (nextStage.coinsReward) rewards.push(`+${nextStage.coinsReward} 🪙`);
+      const rewardHint = rewards.length ? ` (${rewards.join(' ')})` : '';
+      stageBtn = `<button class="btn btn-stage btn-sm" data-action="stage" data-id="${dream.id}">✅ ${escapeHtml(nextStage.title)}${rewardHint}</button>`;
+    }
+  } else if (totalStages > 0 && doneStages < totalStages) {
+    stageBtn = `<button class="btn btn-stage btn-sm" data-action="stage" data-id="${dream.id}">✅ Отметить этап</button>`;
+  }
+
   return `
     <div class="dream-card" data-id="${dream.id}">
       <div class="dream-card-glow"></div>
@@ -2630,7 +2793,7 @@ function openDreamEditModal(dreamId) {
   document.getElementById('dream-custom-reward').value = dream.customReward || '';
   document.getElementById('dream-xp').value            = dream.xpReward;
   document.getElementById('dream-coins').value         = dream.coinReward;
-  document.getElementById('dream-stages').value        = dream.totalStages || '';
+  renderDreamStagesInForm(dream.stages || []);
   const timerSection = document.getElementById('dream-timer-section');
   const bonusSection = document.getElementById('dream-bonus-penalty-section');
   const timerArrow   = document.getElementById('dream-timer-toggle-arrow');
@@ -2683,13 +2846,13 @@ function resetDreamForm() {
   document.getElementById('dream-custom-reward').value = '';
   document.getElementById('dream-xp').value            = '';
   document.getElementById('dream-coins').value         = '';
-  document.getElementById('dream-stages').value        = '';
   document.getElementById('dream-timer-days').value    = '';
   document.getElementById('dream-timer-hours').value   = '';
   document.getElementById('dream-timer-minutes').value = '';
   document.getElementById('dream-bonus-coins').value   = '';
   document.getElementById('dream-bonus-custom').value  = '';
   document.getElementById('dream-penalty-coins').value = '';
+  renderDreamStagesInForm([]);
   document.querySelectorAll('.dream-emoji-btn').forEach((b, i) =>
     b.classList.toggle('active', b.dataset.emoji === '🌟'));
   document.querySelectorAll('.dream-preset-btn').forEach(b => b.classList.remove('active'));
@@ -2708,9 +2871,9 @@ function submitDream() {
   }
   const desc         = document.getElementById('dream-desc').value.trim();
   const customReward = document.getElementById('dream-custom-reward').value.trim();
-  const xpReward     = parseInt(document.getElementById('dream-xp').value,     10) || 100;
-  const coinReward   = parseInt(document.getElementById('dream-coins').value,   10) || 0;
-  const totalStages  = parseInt(document.getElementById('dream-stages').value,  10) || 0;
+  const xpReward     = parseInt(document.getElementById('dream-xp').value,   10) || 100;
+  const coinReward   = parseInt(document.getElementById('dream-coins').value, 10) || 0;
+  const stages       = getDreamStagesFromForm();
 
   const days    = parseInt(document.getElementById('dream-timer-days').value,    10) || 0;
   const hours   = parseInt(document.getElementById('dream-timer-hours').value,   10) || 0;
@@ -2726,11 +2889,113 @@ function submitDream() {
   const penalty      = timerDurationMs ? { coins: penaltyCoins } : null;
 
   if (editingDreamId) {
-    updateDream(editingDreamId, title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty);
+    updateDream(editingDreamId, title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, stages, timerDurationMs, bonus, penalty);
   } else {
-    addDream(title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty);
+    addDream(title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, stages, timerDurationMs, bonus, penalty);
   }
   closeModal('dream-modal');
+}
+
+// ==========================================
+// Dream Stages UI Helpers
+// ==========================================
+
+/**
+ * Render the stages list in the dream modal form.
+ * @param {Array} stages
+ */
+function renderDreamStagesInForm(stages) {
+  const container = document.getElementById('dream-stages-list');
+  if (!container) return;
+  container.innerHTML = '';
+  (stages || []).forEach((stage, idx) => {
+    container.appendChild(createDreamStageRow(stage, idx));
+  });
+}
+
+/** Create a single stage row element for the dream modal */
+function createDreamStageRow(stage, idx) {
+  const done = !!stage.completedAt;
+  const row  = document.createElement('div');
+  row.className = `dream-stage-row${done ? ' stage-done' : ''}`;
+  if (stage.completedAt) row.dataset.completedAt = stage.completedAt;
+  if (stage.id)          row.dataset.stageId     = stage.id;
+
+  row.innerHTML = `
+    <div class="stage-row-controls">
+      ${!done ? '<button type="button" class="btn btn-ghost btn-xs stage-move-up" title="Move up">↑</button>' : ''}
+      ${!done ? '<button type="button" class="btn btn-ghost btn-xs stage-move-down" title="Move down">↓</button>' : ''}
+      ${done  ? '<span class="stage-done-badge" title="Already completed">✅</span>' : ''}
+    </div>
+    <div class="stage-row-inputs">
+      <input class="form-input stage-title-input" type="text" placeholder="Stage title…" maxlength="100"
+             value="${escapeHtml(stage.title || '')}"${done ? ' disabled' : ''}>
+      <div class="stage-rewards-row">
+        <div class="stage-reward-group">
+          <input class="form-input stage-coins-input" type="number" min="0" max="9999" placeholder="0"
+                 value="${stage.coinsReward || 0}"${done ? ' disabled' : ''}>
+          <span class="stage-reward-label">🪙</span>
+        </div>
+        <div class="stage-reward-group">
+          <input class="form-input stage-xp-input" type="number" min="0" max="9999" placeholder="0"
+                 value="${stage.xpReward || 0}"${done ? ' disabled' : ''}>
+          <span class="stage-reward-label">XP</span>
+        </div>
+      </div>
+    </div>
+    <button type="button" class="btn btn-danger btn-xs stage-remove" title="Remove stage"${done ? ' disabled' : ''}>✕</button>
+  `;
+
+  if (!done) {
+    row.querySelector('.stage-move-up').addEventListener('click',   () => moveDreamStageUI(row, 'up'));
+    row.querySelector('.stage-move-down').addEventListener('click', () => moveDreamStageUI(row, 'down'));
+    row.querySelector('.stage-remove').addEventListener('click',    () => removeDreamStageUI(row));
+  }
+  return row;
+}
+
+/** Add a new empty stage row at the bottom of the stages list */
+function addDreamStageUI() {
+  const container = document.getElementById('dream-stages-list');
+  if (!container) return;
+  const idx = container.children.length;
+  const row = createDreamStageRow({ id: null, title: '', coinsReward: 0, xpReward: 0, completedAt: null }, idx);
+  container.appendChild(row);
+  row.querySelector('.stage-title-input').focus();
+}
+
+/** Remove a stage row from the form */
+function removeDreamStageUI(row) {
+  row.parentNode.removeChild(row);
+}
+
+/** Move a stage row up or down within the form */
+function moveDreamStageUI(row, direction) {
+  const container = row.parentNode;
+  if (direction === 'up' && row.previousElementSibling) {
+    container.insertBefore(row, row.previousElementSibling);
+  } else if (direction === 'down' && row.nextElementSibling) {
+    container.insertBefore(row.nextElementSibling, row);
+  }
+}
+
+/** Collect stages data from the form inputs */
+function getDreamStagesFromForm() {
+  const container = document.getElementById('dream-stages-list');
+  if (!container) return [];
+  const base = Date.now();
+  return Array.from(container.querySelectorAll('.dream-stage-row')).map((row, idx) => {
+    const title       = row.querySelector('.stage-title-input').value.trim();
+    const coinsReward = parseInt(row.querySelector('.stage-coins-input').value, 10) || 0;
+    const xpReward    = parseInt(row.querySelector('.stage-xp-input').value,    10) || 0;
+    return {
+      id:          row.dataset.stageId || `s-${base}-${Math.random().toString(36).slice(2)}-${idx}`,
+      title:       title || `Stage ${idx + 1}`,
+      coinsReward,
+      xpReward,
+      completedAt: row.dataset.completedAt || null,
+    };
+  });
 }
 
 /** Init the dream modal event listeners */
@@ -2778,6 +3043,8 @@ function initDreamModal() {
     openModal('dream-modal');
     setTimeout(() => document.getElementById('dream-title').focus(), 100);
   });
+
+  document.getElementById('add-dream-stage-btn').addEventListener('click', addDreamStageUI);
 
   document.getElementById('close-dream-modal').addEventListener('click', () => closeModal('dream-modal'));
   document.getElementById('cancel-dream-btn').addEventListener('click', () => closeModal('dream-modal'));
@@ -3166,6 +3433,7 @@ function init() {
   checkInflationReset();         // Reset inflation if date has changed
   updateIntegrityStreakForNewDay(); // Auto-increment integrity streak for new day(s)
   checkAndApplyExpiredPenalties(); // Apply any pending task timer penalties on load
+  migrateDreamsToStages();       // Upgrade old-style dreams to stages array if needed
   updateHeader();
   renderActiveTasks();
   renderCompletedTasks();

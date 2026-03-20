@@ -127,6 +127,8 @@
         <div class="debt-bar-wrapper"><div class="debt-bar" id="debt-bar"></div></div>
         <div class="debt-bar-label" id="debt-bar-label"></div>
       </div>
+      <!-- Free Reward Banner -->
+      <div class="free-reward-banner" id="free-reward-banner"></div>
       <div class="rewards-grid" id="rewards-list"></div>
 
       <div class="section-header" style="margin-top: 2rem;">
@@ -655,8 +657,11 @@
         </div>
         <!-- Stages -->
         <div class="form-group">
-          <label class="form-label" for="dream-stages">Number of stages <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional, 0 = none)</small></label>
-          <input class="form-input" type="number" id="dream-stages" min="0" max="100" placeholder="0">
+          <div class="dream-stages-header">
+            <label class="form-label" style="margin:0;">Этапы <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(необязательно)</small></label>
+            <button type="button" class="btn btn-ghost btn-sm" id="add-dream-stage-btn">+ Добавить этап</button>
+          </div>
+          <div id="dream-stages-list" class="dream-stages-list"></div>
         </div>
         <!-- Timer -->
         <div class="form-group timer-toggle-group">
