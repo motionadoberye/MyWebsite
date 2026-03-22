@@ -119,6 +119,11 @@ let state = {
     'youtube.com', 'tiktok.com', 'twitter.com', 'x.com',
     'instagram.com', 'reddit.com', 'twitch.tv', 'vk.com',
   ],
+  // ── Daily Discount ──
+  dailyDiscountData: {
+    lastPurchaseDate: null,  // 'YYYY-MM-DD' of the last first-of-day purchase
+    usedToday:        false, // whether today's discount has been used
+  },
 };
 
 // ==========================================
@@ -144,6 +149,7 @@ function saveState() {
   localStorage.setItem('qm_completedDreams', JSON.stringify(state.completedDreams));
   localStorage.setItem('qm_dreamStats',      JSON.stringify(state.dreamStats));
   localStorage.setItem('qm_blockedSites',    JSON.stringify(state.blockedSites));
+  localStorage.setItem('qm_dailyDiscountData', JSON.stringify(state.dailyDiscountData));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -189,6 +195,10 @@ function loadState() {
   // Load blocked sites list (backward-compatible)
   const savedBlockedSites = parse('qm_blockedSites', null);
   if (savedBlockedSites) state.blockedSites = savedBlockedSites;
+
+  // Load daily discount data (backward-compatible)
+  const savedDailyDiscount = parse('qm_dailyDiscountData', null);
+  if (savedDailyDiscount) state.dailyDiscountData = { ...state.dailyDiscountData, ...savedDailyDiscount };
 }
 
 // ==========================================
@@ -662,12 +672,60 @@ function getInflatedPrice(basePrice) {
   return Math.ceil(basePrice * state.inflationData.multiplier);
 }
 
+/** Check if the daily first-purchase discount is available right now */
+function isDailyDiscountAvailable() {
+  const today = todayStr();
+  if (state.dailyDiscountData.lastPurchaseDate === today && state.dailyDiscountData.usedToday) {
+    return false; // already used today
+  }
+  return true;
+}
+
+/** Get today's discount percentage: 100% on weekends (Sat/Sun), 50% on weekdays */
+function getDailyDiscountPercent() {
+  const day = new Date().getDay(); // 0 = Sun, 6 = Sat
+  return (day === 0 || day === 6) ? 100 : 50;
+}
+
+/** Apply daily discount to a price. Returns the discounted price (minimum 0). */
+function applyDailyDiscount(price) {
+  const pct = getDailyDiscountPercent();
+  return Math.max(0, Math.ceil(price * (1 - pct / 100)));
+}
+
+/** Mark the daily discount as used for today */
+function consumeDailyDiscount() {
+  state.dailyDiscountData.lastPurchaseDate = todayStr();
+  state.dailyDiscountData.usedToday = true;
+}
+
+/** Reset daily discount if a new day has started (called from init) */
+function checkDailyDiscountReset() {
+  const today = todayStr();
+  if (state.dailyDiscountData.lastPurchaseDate !== today) {
+    state.dailyDiscountData.usedToday = false;
+    // Don't update lastPurchaseDate until an actual purchase happens
+    saveState();
+  }
+}
+
 /** Purchase a reward — deduct coins (allows negative balance) and record history */
 function buyReward(rewardId) {
   const reward = state.rewards.find(r => r.id === rewardId);
   if (!reward) return;
 
-  const effectivePrice = getInflatedPrice(reward.price);
+  let effectivePrice = getInflatedPrice(reward.price);
+
+  // Apply daily first-purchase discount if available
+  let discountApplied = false;
+  let discountPct = 0;
+  if (isDailyDiscountAvailable()) {
+    discountPct = getDailyDiscountPercent();
+    effectivePrice = applyDailyDiscount(effectivePrice);
+    discountApplied = true;
+    consumeDailyDiscount();
+  }
+
   const previousCoins  = state.userStats.coins;
 
   state.userStats.coins -= effectivePrice;
@@ -697,7 +755,11 @@ function buyReward(rewardId) {
   updateHeader();
   updateDebtWarning();
 
-  if (state.userStats.coins < 0) {
+  if (discountApplied && discountPct === 100) {
+    showToast(`🎁 БЕСПЛАТНО (скидка выходного дня)! "${escapeHtml(reward.title)}" ${reward.emoji}`, 'success');
+  } else if (discountApplied) {
+    showToast(`🏷️ Скидка ${discountPct}%! "${escapeHtml(reward.title)}" ${reward.emoji} за ${effectivePrice} 🪙`, 'success');
+  } else if (state.userStats.coins < 0) {
     showToast(`💳 Куплено в кредит: "${escapeHtml(reward.title)}" ${reward.emoji}. Баланс: ${state.userStats.coins} 🪙`, 'warning');
   } else {
     showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${effectivePrice} 🪙`, 'success');
@@ -898,24 +960,43 @@ function renderRewards() {
         <div class="empty-title">Shop is empty</div>
         <div class="empty-hint">Add rewards to spend your hard-earned coins!</div>
       </div>`;
+    updateDailyDiscountBanner();
     return;
   }
 
   const multiplier = state.inflationData.multiplier;
   const isInflated = multiplier > 1.0;
+  const discountAvailable = isDailyDiscountAvailable();
+  const discountPct = discountAvailable ? getDailyDiscountPercent() : 0;
 
   container.innerHTML = state.rewards.map(r => {
-    const basePrice     = r.price;
-    const effectivePrice = getInflatedPrice(basePrice);
-    const canAfford     = state.userStats.coins >= effectivePrice;
+    const basePrice      = r.price;
+    const inflatedPrice  = getInflatedPrice(basePrice);
+    // Show what the first purchase would cost with discount
+    const discountedPrice = discountAvailable ? applyDailyDiscount(inflatedPrice) : inflatedPrice;
+    const displayPrice    = discountAvailable ? discountedPrice : inflatedPrice;
+    const canAfford       = state.userStats.coins >= displayPrice;
 
-    // Price display: show crossed-out original + inflated when inflation is active
-    const priceHtml = isInflated
-      ? `<div class="reward-price">
+    // Price display
+    let priceHtml;
+    if (discountAvailable && discountPct === 100) {
+      priceHtml = `<div class="reward-price">
+        <span class="reward-price-original">🪙 ${inflatedPrice}</span>
+        <span class="reward-price-discount">🎁 БЕСПЛАТНО</span>
+      </div>`;
+    } else if (discountAvailable) {
+      priceHtml = `<div class="reward-price">
+        <span class="reward-price-original">🪙 ${inflatedPrice}</span>
+        <span class="reward-price-discount">🪙 ${discountedPrice} <small>🏷️-${discountPct}%</small></span>
+      </div>`;
+    } else if (isInflated) {
+      priceHtml = `<div class="reward-price">
            <span class="reward-price-original">🪙 ${basePrice}</span>
-           <span class="reward-price-inflated">🪙 ${effectivePrice} <small>📈+${Math.round((multiplier - 1) * 100)}%</small></span>
-         </div>`
-      : `<div class="reward-price"><span>🪙</span> ${basePrice}</div>`;
+           <span class="reward-price-inflated">🪙 ${inflatedPrice} <small>📈+${Math.round((multiplier - 1) * 100)}%</small></span>
+         </div>`;
+    } else {
+      priceHtml = `<div class="reward-price"><span>🪙</span> ${basePrice}</div>`;
+    }
 
     // Buy button: green when affordable, orange "on credit" when not
     const buyLabel = canAfford ? 'Купить' : '💳 В кредит';
@@ -948,6 +1029,7 @@ function renderRewards() {
   // Keep the inflation banner and debt warning in sync
   updateInflationBanner();
   updateDebtWarning();
+  updateDailyDiscountBanner();
 }
 
 function renderPurchasedRewards() {
@@ -1636,6 +1718,24 @@ function updateInflationBanner() {
   }
 }
 
+/** Show or hide the daily discount banner */
+function updateDailyDiscountBanner() {
+  const banner = document.getElementById('daily-discount-banner');
+  if (!banner) return;
+
+  if (isDailyDiscountAvailable()) {
+    const pct = getDailyDiscountPercent();
+    const isWeekend = pct === 100;
+    const pctEl = document.getElementById('discount-pct');
+    if (pctEl) pctEl.textContent = pct;
+    const typeEl = document.getElementById('discount-type');
+    if (typeEl) typeEl.textContent = isWeekend ? 'выходной' : 'будний день';
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
 // ==========================================
 // Mechanic 2 — Laziness Inflation
 // ==========================================
@@ -2285,7 +2385,7 @@ let selectedDreamEmoji = '🌟';
 let editingDreamId     = null;
 
 /** Create and add a new dream */
-function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty) {
+function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalStages, stageLabels, timerDurationMs, bonus, penalty) {
   const now = new Date().toISOString();
   const dream = {
     id:             `dream-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -2297,6 +2397,7 @@ function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalS
     customReward:   customReward || '',
     totalStages:    Math.max(0, parseInt(totalStages, 10) || 0),
     completedStages: 0,
+    stageLabels:    stageLabels || [],  // array of strings for each stage
     timerDurationMs: timerDurationMs || null,
     timerStartTime:  timerDurationMs ? now : null,
     timerExpiredPenaltyApplied: false,
@@ -2315,7 +2416,7 @@ function addDream(title, desc, emoji, xpReward, coinReward, customReward, totalS
 }
 
 /** Update an existing dream */
-function updateDream(dreamId, title, desc, emoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty) {
+function updateDream(dreamId, title, desc, emoji, xpReward, coinReward, customReward, totalStages, stageLabels, timerDurationMs, bonus, penalty) {
   const dream = state.dreams.find(d => d.id === dreamId);
   if (!dream) return;
   dream.title        = title;
@@ -2325,6 +2426,7 @@ function updateDream(dreamId, title, desc, emoji, xpReward, coinReward, customRe
   dream.coinReward   = Math.max(0, parseInt(coinReward, 10) || 0);
   dream.customReward = customReward || '';
   dream.totalStages  = Math.max(0, parseInt(totalStages, 10) || 0);
+  dream.stageLabels  = stageLabels || [];
   if (timerDurationMs) {
     dream.timerDurationMs = timerDurationMs;
     dream.timerStartTime  = new Date().toISOString();
@@ -2380,7 +2482,8 @@ function completeStage(dreamId) {
   renderDreams();
   updateHeader();
   updateDebtWarning();
-  showToast(`✅ Этап ${dream.completedStages}/${dream.totalStages} выполнен! +${stageXp} XP  +${stageCoins} 🪙`, 'success');
+  const stageLabel = (dream.stageLabels && dream.stageLabels[dream.completedStages - 1]) || `Этап ${dream.completedStages}`;
+  showToast(`✅ ${escapeHtml(stageLabel)} (${dream.completedStages}/${dream.totalStages}) выполнен! +${stageXp} XP  +${stageCoins} 🪙`, 'success');
 }
 
 /** Achieve (complete) a dream */
@@ -2493,10 +2596,21 @@ function renderDreams() {
 
 /** Build HTML for a single dream card */
 function renderDreamCard(dream, now) {
-  // Progress bar
+  // Progress bar + stage list
   let progressHtml = '';
   if (dream.totalStages > 0) {
     const pct = Math.round((dream.completedStages / dream.totalStages) * 100);
+    const labels = dream.stageLabels || [];
+    let stageListHtml = '';
+    for (let i = 0; i < dream.totalStages; i++) {
+      const done = i < dream.completedStages;
+      const label = labels[i] || `Этап ${i + 1}`;
+      stageListHtml += `
+        <div class="dream-stage-item ${done ? 'done' : ''}">
+          <span class="dream-stage-check">${done ? '✅' : '⬜'}</span>
+          <span class="dream-stage-label">${escapeHtml(label)}</span>
+        </div>`;
+    }
     progressHtml = `
       <div class="dream-progress">
         <div class="dream-progress-label">
@@ -2505,6 +2619,7 @@ function renderDreamCard(dream, now) {
         <div class="dream-progress-bar-wrapper">
           <div class="dream-progress-bar" style="width:${pct}%"></div>
         </div>
+        <div class="dream-stages-list">${stageListHtml}</div>
       </div>`;
   }
   // Timer
@@ -2631,6 +2746,8 @@ function openDreamEditModal(dreamId) {
   document.getElementById('dream-xp').value            = dream.xpReward;
   document.getElementById('dream-coins').value         = dream.coinReward;
   document.getElementById('dream-stages').value        = dream.totalStages || '';
+  // Render stage label inputs with existing labels
+  renderDreamStageInputs(dream.totalStages || 0, dream.stageLabels || []);
   const timerSection = document.getElementById('dream-timer-section');
   const bonusSection = document.getElementById('dream-bonus-penalty-section');
   const timerArrow   = document.getElementById('dream-timer-toggle-arrow');
@@ -2684,6 +2801,7 @@ function resetDreamForm() {
   document.getElementById('dream-xp').value            = '';
   document.getElementById('dream-coins').value         = '';
   document.getElementById('dream-stages').value        = '';
+  renderDreamStageInputs(0, []);
   document.getElementById('dream-timer-days').value    = '';
   document.getElementById('dream-timer-hours').value   = '';
   document.getElementById('dream-timer-minutes').value = '';
@@ -2712,6 +2830,15 @@ function submitDream() {
   const coinReward   = parseInt(document.getElementById('dream-coins').value,   10) || 0;
   const totalStages  = parseInt(document.getElementById('dream-stages').value,  10) || 0;
 
+  // Collect stage labels from dynamic inputs
+  const stageLabels = [];
+  const stageContainer = document.getElementById('dream-stage-labels');
+  if (stageContainer) {
+    stageContainer.querySelectorAll('.dream-stage-input').forEach((input, i) => {
+      stageLabels[i] = input.value.trim() || `Этап ${i + 1}`;
+    });
+  }
+
   const days    = parseInt(document.getElementById('dream-timer-days').value,    10) || 0;
   const hours   = parseInt(document.getElementById('dream-timer-hours').value,   10) || 0;
   const minutes = parseInt(document.getElementById('dream-timer-minutes').value, 10) || 0;
@@ -2726,11 +2853,34 @@ function submitDream() {
   const penalty      = timerDurationMs ? { coins: penaltyCoins } : null;
 
   if (editingDreamId) {
-    updateDream(editingDreamId, title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty);
+    updateDream(editingDreamId, title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, totalStages, stageLabels, timerDurationMs, bonus, penalty);
   } else {
-    addDream(title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, totalStages, timerDurationMs, bonus, penalty);
+    addDream(title, desc, selectedDreamEmoji, xpReward, coinReward, customReward, totalStages, stageLabels, timerDurationMs, bonus, penalty);
   }
   closeModal('dream-modal');
+}
+
+/**
+ * Render dynamic stage label text inputs inside the dream modal.
+ * @param {number} count — how many stages
+ * @param {string[]} existingLabels — pre-filled labels (for editing)
+ */
+function renderDreamStageInputs(count, existingLabels) {
+  const container = document.getElementById('dream-stage-labels');
+  if (!container) return;
+  if (count <= 0) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'block';
+  const labels = existingLabels || [];
+  let html = '<label class="form-label" style="margin-bottom:0.4rem;">Названия этапов</label>';
+  for (let i = 0; i < count; i++) {
+    const val = labels[i] || '';
+    html += `<input class="form-input dream-stage-input" type="text" placeholder="Этап ${i + 1}" value="${escapeHtml(val)}" maxlength="100" style="margin-bottom:0.35rem;">`;
+  }
+  container.innerHTML = html;
 }
 
 /** Init the dream modal event listeners */
@@ -2771,6 +2921,12 @@ function initDreamModal() {
       btn.classList.add('active');
       document.getElementById('dream-bonus-penalty-section').style.display = 'block';
     });
+  });
+
+  // Dynamic stage label inputs — regenerate when stage count changes
+  document.getElementById('dream-stages').addEventListener('input', () => {
+    const count = Math.min(100, Math.max(0, parseInt(document.getElementById('dream-stages').value, 10) || 0));
+    renderDreamStageInputs(count, []);
   });
 
   document.getElementById('add-dream-btn').addEventListener('click', () => {
@@ -2887,18 +3043,6 @@ window.addEventListener('message', event => {
       // Extension confirms action — re-render timers
       renderTimers();
       break;
-
-    case 'QUESTLIFE_OVERTIME_PENALTY': {
-      // Deduct coins for each overtime incident
-      const count = (data.penalties || []).length;
-      if (count > 0) {
-        state.userStats.coins -= count;
-        saveState();
-        updateHeader();
-        showToast(`😬 Штраф за перебор: -${count} 🪙`, 'warning');
-      }
-      break;
-    }
   }
 });
 
@@ -3164,6 +3308,7 @@ function init() {
   loadState();
   resetDailyTasksIfNewDay();     // Check and reset daily tasks if a new day has begun
   checkInflationReset();         // Reset inflation if date has changed
+  checkDailyDiscountReset();     // Reset daily first-purchase discount if new day
   updateIntegrityStreakForNewDay(); // Auto-increment integrity streak for new day(s)
   checkAndApplyExpiredPenalties(); // Apply any pending task timer penalties on load
   updateHeader();
