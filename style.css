@@ -1884,3 +1884,80 @@ body {
   margin-left: 4px;
   vertical-align: middle;
 }
+
+/* ==========================================
+   Daily Discount Banner
+   ========================================== */
+.daily-discount-banner {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: var(--radius);
+  padding: 0.65rem 1rem;
+  margin-bottom: 1rem;
+  color: var(--accent-green-light, #34d399);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  animation: discountPulse 2.5s ease infinite;
+}
+
+@keyframes discountPulse {
+  0%, 100% { border-color: rgba(16, 185, 129, 0.35); }
+  50%       { border-color: rgba(16, 185, 129, 0.7); box-shadow: 0 0 12px rgba(16, 185, 129, 0.2); }
+}
+
+/* Discount price display in reward cards */
+.reward-price-discount {
+  color: var(--accent-green-light, #34d399);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.reward-price-discount small {
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* ==========================================
+   Dream Stage List (inside dream cards)
+   ========================================== */
+.dream-stages-list {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dream-stage-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  padding: 0.2rem 0;
+}
+
+.dream-stage-item.done {
+  color: var(--text-muted);
+}
+
+.dream-stage-item.done .dream-stage-label {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.dream-stage-check {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.dream-stage-label {
+  line-height: 1.3;
+}
+
+/* Dream stage label inputs in modal */
+.dream-stage-input {
+  font-size: 0.85rem !important;
+  padding: 0.4rem 0.6rem !important;
+}

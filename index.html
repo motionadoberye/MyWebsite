@@ -117,6 +117,10 @@
           </div>
         </details>
       </div>
+      <!-- Daily Discount Banner -->
+      <div class="daily-discount-banner" id="daily-discount-banner" style="display:none;">
+        🏷️ СКИДКА <span id="discount-pct">50</span>% на первую покупку (<span id="discount-type">будний день</span>)!
+      </div>
       <!-- Inflation Banner -->
       <div class="inflation-banner" id="inflation-banner" style="display:none;">
         🔥 ИНФЛЯЦИЯ АКТИВНА — цены повышены на <span id="inflation-pct">50</span>% до полуночи
@@ -658,6 +662,8 @@
           <label class="form-label" for="dream-stages">Number of stages <small style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional, 0 = none)</small></label>
           <input class="form-input" type="number" id="dream-stages" min="0" max="100" placeholder="0">
         </div>
+        <!-- Dynamic stage label inputs -->
+        <div id="dream-stage-labels" class="form-group" style="display:none;"></div>
         <!-- Timer -->
         <div class="form-group timer-toggle-group">
           <button type="button" class="timer-toggle-btn" id="dream-timer-toggle-btn">
