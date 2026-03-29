@@ -170,9 +170,8 @@ async function checkConnection() {
 
 // ── Tick ──────────────────────────────────────────────────────────────
 
-function tick() {
-  if (!cachedState) return;
-  renderTimers(cachedState.activeTimers || []);
+async function tick() {
+  await refresh();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────

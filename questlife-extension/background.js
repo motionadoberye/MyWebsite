@@ -357,6 +357,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (Array.isArray(message.data.rewards)) {
           await storageSet({ questLifeRewards: message.data.rewards });
         }
+        // Clean up orphaned timers: remove any timer the site no longer knows about
+        if (Array.isArray(message.data.siteActiveTimerIds)) {
+          const siteIds = new Set(message.data.siteActiveTimerIds);
+          const timers = await storageGet('activeTimers', []);
+          const cleaned = timers.filter(t => siteIds.has(t.id));
+          if (cleaned.length !== timers.length) {
+            // Cancel alarms for removed timers
+            const removedTimers = timers.filter(t => !siteIds.has(t.id));
+            for (const t of removedTimers) {
+              chrome.alarms.clear(`timer_${t.id}`);
+            }
+            await storageSet({ activeTimers: cleaned });
+            await rebuildBlockingRules();
+          }
+        }
         sendResponse({ ok: true });
         break;
 
