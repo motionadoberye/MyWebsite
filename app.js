@@ -478,7 +478,7 @@ function updateTaskTimerDisplays() {
 
 
 /** Build a new task object */
-function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward) {
+function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
   const now = new Date().toISOString();
   return {
     id:          `task-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -487,6 +487,8 @@ function createTask(title, desc, difficulty, category, timerDurationMs, bonus, p
     difficulty,
     category,
     customReward: customReward || '',  // optional reward text shown on completion
+    customRewardTimerMinutes: customRewardTimerMinutes || null,  // optional timer for custom reward (e.g. 20 minutes)
+    customRewardSite: customRewardSite || null,  // optional site to unlock with custom reward (e.g. "youtube.com")
     createdAt:   now,
     // ── Timer ──
     timerDurationMs: timerDurationMs || null,  // null = no timer
@@ -510,8 +512,8 @@ function createTask(title, desc, difficulty, category, timerDurationMs, bonus, p
 }
 
 /** Add a new task to the active list */
-function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward) {
-  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward);
+function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
+  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite);
   state.tasks.unshift(task);
   saveState();
   renderActiveTasks();
@@ -599,6 +601,18 @@ function completeTask(taskId) {
           setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), bonus.custom ? 1800 : 1200);
         }
       }, 400);
+      // ── Custom Reward Timer for on-time completion ──
+      if (task.customRewardTimerMinutes && task.customRewardSite) {
+        setTimeout(() => {
+          startTimer(
+            task.customReward || `${task.customRewardSite} unlock`,
+            '🎁',
+            task.customRewardTimerMinutes,
+            task.customRewardSite
+          );
+          showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
+        }, bonus.custom ? 2400 : (task.customReward ? 1800 : 1200));
+      }
     } else {
       // Completed after deadline — no bonus, penalty may have been applied already
       state.timerStats.completedOverdue++;
@@ -614,6 +628,18 @@ function completeTask(taskId) {
       if (task.customReward) {
         setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
       }
+      // ── Custom Reward Timer for overdue completion ──
+      if (task.customRewardTimerMinutes && task.customRewardSite) {
+        setTimeout(() => {
+          startTimer(
+            task.customReward || `${task.customRewardSite} unlock`,
+            '🎁',
+            task.customRewardTimerMinutes,
+            task.customRewardSite
+          );
+          showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
+        }, task.customReward ? 1200 : 600);
+      }
     }
   } else {
     // No timer — regular completion
@@ -627,6 +653,19 @@ function completeTask(taskId) {
     if (task.customReward) {
       setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
     }
+  }
+
+  // ── Custom Reward Timer (start site unlock timer after completion) ──
+  if (task.customRewardTimerMinutes && task.customRewardSite) {
+    setTimeout(() => {
+      startTimer(
+        task.customReward || `${task.customRewardSite} unlock`,
+        '🎁',
+        task.customRewardTimerMinutes,
+        task.customRewardSite
+      );
+      showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
+    }, task.customReward ? 1200 : 600);
   }
 }
 
@@ -970,6 +1009,7 @@ function renderTaskItem(task, completed) {
           ${task.isPenaltyQuest ? '<span class="badge badge-penalty-reward">⚔️ Штрафной — награда x0.5</span>' : ''}
           ${task.bonus && (task.bonus.coins > 0 || task.bonus.pct > 0 || task.bonus.custom) ? `<span class="badge-bonus-reward">🎁 Бонус</span>` : ''}
           ${task.customReward ? `<span class="badge-custom-reward">🎁 ${escapeHtml(task.customReward)}</span>` : ''}
+          ${task.customRewardTimerMinutes && task.customRewardSite ? `<span class="badge-custom-reward">🔓 ${task.customRewardSite} · ${task.customRewardTimerMinutes} мин</span>` : ''}
         </div>
         ${timerHtml}
       </div>
@@ -1315,6 +1355,8 @@ function openTaskEditModal(taskId) {
   document.getElementById('task-title').value       = task.title;
   document.getElementById('task-desc').value        = task.desc || '';
   document.getElementById('task-custom-reward').value = task.customReward || '';
+  document.getElementById('task-custom-reward-timer').value = task.customRewardTimerMinutes || '';
+  document.getElementById('task-custom-reward-site').value = task.customRewardSite || '';
   selectedDifficulty = task.difficulty;
   document.querySelectorAll('#difficulty-options .option-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.value === task.difficulty));
@@ -1368,7 +1410,7 @@ function openTaskEditModal(taskId) {
   setTimeout(() => document.getElementById('task-title').focus(), 100);
 }
 
-function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward) {
+function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
   const task = state.tasks.find(t => t.id === taskId);
   if (!task) return;
   task.title        = title;
@@ -1376,6 +1418,8 @@ function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, 
   task.difficulty   = difficulty;
   task.category     = category;
   task.customReward = customReward || '';
+  task.customRewardTimerMinutes = customRewardTimerMinutes || null;
+  task.customRewardSite = customRewardSite || null;
   if (timerDurationMs) {
     task.timerDurationMs = timerDurationMs;
     task.timerStartTime  = new Date().toISOString();
@@ -1486,6 +1530,8 @@ function resetTaskForm() {
   document.getElementById('task-title').value        = '';
   document.getElementById('task-desc').value         = '';
   document.getElementById('task-custom-reward').value = '';
+  document.getElementById('task-custom-reward-timer').value = '';
+  document.getElementById('task-custom-reward-site').value = '';
   document.getElementById('task-timer-days').value   = '';
   document.getElementById('task-timer-hours').value  = '';
   document.getElementById('task-timer-minutes').value = '';
@@ -1548,11 +1594,13 @@ function submitTask() {
 
   // ── Custom Quest Reward ──
   const customReward = document.getElementById('task-custom-reward').value.trim();
+  const customRewardTimerMinutes = parseInt(document.getElementById('task-custom-reward-timer').value, 10) || null;
+  const customRewardSite = document.getElementById('task-custom-reward-site').value.trim().toLowerCase().replace(/^www\./, '') || null;
 
   if (editingTaskId) {
-    updateTask(editingTaskId, title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward);
+    updateTask(editingTaskId, title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite);
   } else {
-    addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward);
+    addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite);
   }
   closeModal('task-modal');
 }
