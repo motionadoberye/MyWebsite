@@ -601,18 +601,6 @@ function completeTask(taskId) {
           setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), bonus.custom ? 1800 : 1200);
         }
       }, 400);
-      // ── Custom Reward Timer for on-time completion ──
-      if (task.customRewardTimerMinutes && task.customRewardSite) {
-        setTimeout(() => {
-          startTimer(
-            task.customReward || `${task.customRewardSite} unlock`,
-            '🎁',
-            task.customRewardTimerMinutes,
-            task.customRewardSite
-          );
-          showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
-        }, bonus.custom ? 2400 : (task.customReward ? 1800 : 1200));
-      }
     } else {
       // Completed after deadline — no bonus, penalty may have been applied already
       state.timerStats.completedOverdue++;
@@ -627,18 +615,6 @@ function completeTask(taskId) {
       showToast(`+${xpReward} XP  +${coinReward} 🪙${penaltyNote}  "${escapeHtml(task.title)}" (просрочено)`, 'warning');
       if (task.customReward) {
         setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
-      }
-      // ── Custom Reward Timer for overdue completion ──
-      if (task.customRewardTimerMinutes && task.customRewardSite) {
-        setTimeout(() => {
-          startTimer(
-            task.customReward || `${task.customRewardSite} unlock`,
-            '🎁',
-            task.customRewardTimerMinutes,
-            task.customRewardSite
-          );
-          showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
-        }, task.customReward ? 1200 : 600);
       }
     }
   } else {
@@ -3153,12 +3129,41 @@ window.addEventListener('message', event => {
       break;
     }
 
-    case 'QUESTLIFE_TIMER_PAUSED':
-    case 'QUESTLIFE_TIMER_RESUMED':
-    case 'QUESTLIFE_TIMER_STOPPED':
-      // Extension confirms action — re-render timers
+    case 'QUESTLIFE_TIMER_PAUSED': {
+      const pt = state.activeTimers.find(t => t.id === data.id);
+      if (pt && !pt.finished) {
+        pt.pausedRemaining = Math.max(0, pt.endTime - Date.now());
+        pt.paused = true;
+        saveState();
+      }
       renderTimers();
       break;
+    }
+
+    case 'QUESTLIFE_TIMER_RESUMED': {
+      const rt = state.activeTimers.find(t => t.id === data.id);
+      if (rt && rt.paused) {
+        rt.endTime = Date.now() + (rt.pausedRemaining || 0);
+        rt.paused = false;
+        rt.pausedRemaining = null;
+        saveState();
+        startTimerTick();
+      }
+      renderTimers();
+      break;
+    }
+
+    case 'QUESTLIFE_TIMER_STOPPED': {
+      // Extension stopped the timer — remove from site state too
+      state.activeTimers = state.activeTimers.filter(t => t.id !== data.id);
+      saveState();
+      renderTimers();
+      if (state.activeTimers.length === 0 && timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      break;
+    }
   }
 });
 
@@ -3188,6 +3193,10 @@ function syncExtensionState() {
       level:        state.userStats.level,
       coins:        state.userStats.coins,
       blockedSites: state.blockedSites,
+      // Include active timers so extension can clean up orphaned timers
+      siteActiveTimerIds: state.activeTimers
+        .filter(t => !t.finished)
+        .map(t => t.id),
       // Include rewards so blocked.html can show "Buy and unlock" suggestions
       rewards:      state.rewards.map(r => ({
         id:           r.id,
