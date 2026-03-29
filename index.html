@@ -332,6 +332,16 @@
           <input class="form-input" type="text" id="task-custom-reward" placeholder="e.g. 20 мин YouTube 🎬" maxlength="100" autocomplete="off">
         </div>
         <div class="form-group">
+          <label class="form-label" for="task-custom-reward-timer">Custom Reward Timer (minutes)</label>
+          <input class="form-input" type="number" id="task-custom-reward-timer" placeholder="e.g. 20" min="0" max="1440" autocomplete="off">
+          <small style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem; display: block;">When quest is completed, automatically unlock a site for this duration</small>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="task-custom-reward-site">Site to Unlock (optional)</label>
+          <input class="form-input" type="text" id="task-custom-reward-site" placeholder="e.g. youtube.com" maxlength="100" autocomplete="off">
+          <small style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem; display: block;">Domain to unblock when quest is completed (requires timer minutes above)</small>
+        </div>
+        <div class="form-group">
           <label class="form-label">Difficulty</label>
           <div class="option-grid" id="difficulty-options">
             <button class="option-btn active" data-value="easy">🟢 Easy<small>10 XP · 5 🪙</small></button>
