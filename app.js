@@ -124,6 +124,11 @@ let state = {
     lastPurchaseDate: null,  // 'YYYY-MM-DD' of the last first-of-day purchase
     usedToday:        false, // whether today's discount has been used
   },
+  // ── Daily Credit Limit ──
+  creditData: {
+    count:    0,    // number of credit purchases made today
+    lastDate: null, // 'YYYY-MM-DD' of last credit use (used to detect new day)
+  },
 };
 
 // ==========================================
@@ -150,6 +155,7 @@ function saveState() {
   localStorage.setItem('qm_dreamStats',      JSON.stringify(state.dreamStats));
   localStorage.setItem('qm_blockedSites',    JSON.stringify(state.blockedSites));
   localStorage.setItem('qm_dailyDiscountData', JSON.stringify(state.dailyDiscountData));
+  localStorage.setItem('qm_creditData',      JSON.stringify(state.creditData));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -199,6 +205,10 @@ function loadState() {
   // Load daily discount data (backward-compatible)
   const savedDailyDiscount = parse('qm_dailyDiscountData', null);
   if (savedDailyDiscount) state.dailyDiscountData = { ...state.dailyDiscountData, ...savedDailyDiscount };
+
+  // Load daily credit limit data (backward-compatible)
+  const savedCreditData = parse('qm_creditData', null);
+  if (savedCreditData) state.creditData = { ...state.creditData, ...savedCreditData };
 }
 
 // ==========================================
@@ -468,7 +478,7 @@ function updateTaskTimerDisplays() {
 
 
 /** Build a new task object */
-function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty) {
+function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward) {
   const now = new Date().toISOString();
   return {
     id:          `task-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -476,6 +486,7 @@ function createTask(title, desc, difficulty, category, timerDurationMs, bonus, p
     desc,
     difficulty,
     category,
+    customReward: customReward || '',  // optional reward text shown on completion
     createdAt:   now,
     // ── Timer ──
     timerDurationMs: timerDurationMs || null,  // null = no timer
@@ -499,8 +510,8 @@ function createTask(title, desc, difficulty, category, timerDurationMs, bonus, p
 }
 
 /** Add a new task to the active list */
-function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty) {
-  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty);
+function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward) {
+  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward);
   state.tasks.unshift(task);
   saveState();
   renderActiveTasks();
@@ -584,6 +595,9 @@ function completeTask(taskId) {
         if (bonus.custom) {
           setTimeout(() => showToast(`🎁 Ты заслужил: ${escapeHtml(bonus.custom)}`, 'success'), 1200);
         }
+        if (task.customReward) {
+          setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), bonus.custom ? 1800 : 1200);
+        }
       }, 400);
     } else {
       // Completed after deadline — no bonus, penalty may have been applied already
@@ -597,6 +611,9 @@ function completeTask(taskId) {
       updateCompletedCount();
       updateDebtWarning();
       showToast(`+${xpReward} XP  +${coinReward} 🪙${penaltyNote}  "${escapeHtml(task.title)}" (просрочено)`, 'warning');
+      if (task.customReward) {
+        setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
+      }
     }
   } else {
     // No timer — regular completion
@@ -607,6 +624,9 @@ function completeTask(taskId) {
     updateCompletedCount();
     updateDebtWarning();
     showToast(`+${xpReward} XP  +${coinReward} 🪙${penaltyNote}  "${escapeHtml(task.title)}"`, 'success');
+    if (task.customReward) {
+      setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
+    }
   }
 }
 
@@ -709,6 +729,30 @@ function checkDailyDiscountReset() {
   }
 }
 
+// ── Daily Credit Limit ──
+const DAILY_CREDIT_LIMIT = 3;
+
+/** Returns true if the user has used all credit purchases for today */
+function isCreditLimitReached() {
+  const today = todayStr();
+  if (state.creditData.lastDate !== today) return false;
+  return state.creditData.count >= DAILY_CREDIT_LIMIT;
+}
+
+/** Reset the daily credit counter if a new calendar day has started */
+function checkCreditLimitReset() {
+  const today = todayStr();
+  if (state.creditData.lastDate !== today) {
+    state.creditData.count = 0;
+    saveState();
+  }
+}
+
+/** Returns the number of credit purchases made today */
+function todayCreditCount() {
+  return state.creditData.lastDate === todayStr() ? state.creditData.count : 0;
+}
+
 /** Purchase a reward — deduct coins (allows negative balance) and record history */
 function buyReward(rewardId) {
   const reward = state.rewards.find(r => r.id === rewardId);
@@ -724,6 +768,19 @@ function buyReward(rewardId) {
     effectivePrice = applyDailyDiscount(effectivePrice);
     discountApplied = true;
     consumeDailyDiscount();
+  }
+
+  // Enforce daily credit limit: block if user can't afford and limit is reached
+  const isOnCredit = state.userStats.coins < effectivePrice;
+  if (isOnCredit) {
+    checkCreditLimitReset();  // ensure count reflects the current calendar day
+    if (isCreditLimitReached()) {
+      showToast(`🚫 Лимит кредита исчерпан (${DAILY_CREDIT_LIMIT}/${DAILY_CREDIT_LIMIT} в день). Возвращайтесь завтра!`, 'warning');
+      return;
+    }
+    // Consume one credit slot
+    state.creditData.count++;
+    state.creditData.lastDate = todayStr();
   }
 
   const previousCoins  = state.userStats.coins;
@@ -760,7 +817,7 @@ function buyReward(rewardId) {
   } else if (discountApplied) {
     showToast(`🏷️ Скидка ${discountPct}%! "${escapeHtml(reward.title)}" ${reward.emoji} за ${effectivePrice} 🪙`, 'success');
   } else if (state.userStats.coins < 0) {
-    showToast(`💳 Куплено в кредит: "${escapeHtml(reward.title)}" ${reward.emoji}. Баланс: ${state.userStats.coins} 🪙`, 'warning');
+    showToast(`💳 Куплено в кредит: "${escapeHtml(reward.title)}" ${reward.emoji}. Баланс: ${state.userStats.coins} 🪙 (кредит: ${state.creditData.count}/${DAILY_CREDIT_LIMIT})`, 'warning');
   } else {
     showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${effectivePrice} 🪙`, 'success');
   }
@@ -912,6 +969,7 @@ function renderTaskItem(task, completed) {
           ${penaltyBadge}
           ${task.isPenaltyQuest ? '<span class="badge badge-penalty-reward">⚔️ Штрафной — награда x0.5</span>' : ''}
           ${task.bonus && (task.bonus.coins > 0 || task.bonus.pct > 0 || task.bonus.custom) ? `<span class="badge-bonus-reward">🎁 Бонус</span>` : ''}
+          ${task.customReward ? `<span class="badge-custom-reward">🎁 ${escapeHtml(task.customReward)}</span>` : ''}
         </div>
         ${timerHtml}
       </div>
@@ -998,9 +1056,11 @@ function renderRewards() {
       priceHtml = `<div class="reward-price"><span>🪙</span> ${basePrice}</div>`;
     }
 
-    // Buy button: green when affordable, orange "on credit" when not
-    const buyLabel = canAfford ? 'Купить' : '💳 В кредит';
-    const buyClass = canAfford ? 'btn-green' : 'btn-credit';
+    // Buy button: green when affordable, orange "on credit" when not, grey when limit reached
+    const creditLimitReached = !canAfford && isCreditLimitReached();
+    const buyLabel = canAfford ? 'Купить' : (creditLimitReached ? '🚫 Лимит' : '💳 В кредит');
+    const buyClass = canAfford ? 'btn-green' : (creditLimitReached ? 'btn-disabled' : 'btn-credit');
+    const buyDisabled = creditLimitReached ? 'disabled' : '';
 
     return `
     <div class="reward-card">
@@ -1008,8 +1068,9 @@ function renderRewards() {
       <div class="reward-title">${escapeHtml(r.title)}</div>
       ${r.timerMinutes ? `<div class="reward-timer-badge">⏱️ ${r.timerMinutes} min timer${r.linkedSite ? ` · 🔓 ${escapeHtml(r.linkedSite)}` : ''}</div>` : ''}
       ${priceHtml}
+      ${!canAfford ? `<div class="credit-limit-info">💳 Кредит: ${todayCreditCount()}/${DAILY_CREDIT_LIMIT} сегодня</div>` : ''}
       <div class="reward-actions">
-        <button class="btn ${buyClass} btn-sm" data-action="buy" data-id="${r.id}">${buyLabel}</button>
+        <button class="btn ${buyClass} btn-sm" data-action="buy" data-id="${r.id}" ${buyDisabled}>${buyLabel}</button>
         <button class="btn btn-edit btn-sm" data-action="edit-reward" data-id="${r.id}" title="Edit reward">✏️</button>
         <button class="btn btn-danger btn-sm" data-action="del-reward" data-id="${r.id}" title="Remove reward">✕</button>
       </div>
@@ -1251,8 +1312,9 @@ function openTaskEditModal(taskId) {
   editingTaskId = taskId;
   document.querySelector('#task-modal .modal-title').textContent = 'Редактировать квест';
   document.getElementById('save-task-btn').textContent = 'Сохранить изменения';
-  document.getElementById('task-title').value = task.title;
-  document.getElementById('task-desc').value  = task.desc || '';
+  document.getElementById('task-title').value       = task.title;
+  document.getElementById('task-desc').value        = task.desc || '';
+  document.getElementById('task-custom-reward').value = task.customReward || '';
   selectedDifficulty = task.difficulty;
   document.querySelectorAll('#difficulty-options .option-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.value === task.difficulty));
@@ -1306,13 +1368,14 @@ function openTaskEditModal(taskId) {
   setTimeout(() => document.getElementById('task-title').focus(), 100);
 }
 
-function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, bonus, penalty) {
+function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward) {
   const task = state.tasks.find(t => t.id === taskId);
   if (!task) return;
-  task.title      = title;
-  task.desc       = desc;
-  task.difficulty = difficulty;
-  task.category   = category;
+  task.title        = title;
+  task.desc         = desc;
+  task.difficulty   = difficulty;
+  task.category     = category;
+  task.customReward = customReward || '';
   if (timerDurationMs) {
     task.timerDurationMs = timerDurationMs;
     task.timerStartTime  = new Date().toISOString();
@@ -1422,6 +1485,7 @@ function initTaskModal() {
 function resetTaskForm() {
   document.getElementById('task-title').value        = '';
   document.getElementById('task-desc').value         = '';
+  document.getElementById('task-custom-reward').value = '';
   document.getElementById('task-timer-days').value   = '';
   document.getElementById('task-timer-hours').value  = '';
   document.getElementById('task-timer-minutes').value = '';
@@ -1482,10 +1546,13 @@ function submitTask() {
     questDifficulty: selectedPenaltyDifficulty,
   } : null;
 
+  // ── Custom Quest Reward ──
+  const customReward = document.getElementById('task-custom-reward').value.trim();
+
   if (editingTaskId) {
-    updateTask(editingTaskId, title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty);
+    updateTask(editingTaskId, title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward);
   } else {
-    addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty);
+    addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward);
   }
   closeModal('task-modal');
 }
@@ -2981,6 +3048,7 @@ function initResetModal() {
       'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats', 'qm_activeTimers',
       'qm_inflationData', 'qm_integrityData', 'qm_debtStats', 'qm_timerStats',
       'qm_dreams', 'qm_completedDreams', 'qm_dreamStats', 'qm_blockedSites',
+      'qm_dailyDiscountData', 'qm_creditData',
     ];
     keys.forEach(k => localStorage.removeItem(k));
     location.reload();
@@ -3309,6 +3377,7 @@ function init() {
   resetDailyTasksIfNewDay();     // Check and reset daily tasks if a new day has begun
   checkInflationReset();         // Reset inflation if date has changed
   checkDailyDiscountReset();     // Reset daily first-purchase discount if new day
+  checkCreditLimitReset();       // Reset daily credit counter if new day
   updateIntegrityStreakForNewDay(); // Auto-increment integrity streak for new day(s)
   checkAndApplyExpiredPenalties(); // Apply any pending task timer penalties on load
   updateHeader();
