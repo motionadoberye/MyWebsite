@@ -343,7 +343,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // Website sent updated state (level, coins, blocked sites list, rewards)
         if (message.data.blockedSites) {
           await storageSet({ blockedSites: message.data.blockedSites });
-          await rebuildBlockingRules();
         }
         if (message.data.level !== undefined || message.data.coins !== undefined) {
           await storageSet({
@@ -357,21 +356,60 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (Array.isArray(message.data.rewards)) {
           await storageSet({ questLifeRewards: message.data.rewards });
         }
-        // Clean up orphaned timers: remove any timer the site no longer knows about
-        if (Array.isArray(message.data.siteActiveTimerIds)) {
-          const siteIds = new Set(message.data.siteActiveTimerIds);
-          const timers = await storageGet('activeTimers', []);
-          const cleaned = timers.filter(t => siteIds.has(t.id));
-          if (cleaned.length !== timers.length) {
-            // Cancel alarms for removed timers
-            const removedTimers = timers.filter(t => !siteIds.has(t.id));
-            for (const t of removedTimers) {
-              chrome.alarms.clear(`timer_${t.id}`);
+        // ── Full timer reconciliation ──
+        // Site is the source of truth. Add missing timers, remove orphans.
+        if (Array.isArray(message.data.activeTimers)) {
+          const siteTimers  = message.data.activeTimers;
+          const siteIds     = new Set(siteTimers.map(t => t.id));
+          const extTimers   = await storageGet('activeTimers', []);
+          const extIds      = new Set(extTimers.map(t => t.id));
+          let changed       = false;
+          const now         = Date.now();
+
+          // Add timers the site has but extension doesn't
+          for (const st of siteTimers) {
+            if (!st.linkedSite) continue; // only sync timers with linked sites
+            if (!extIds.has(st.id)) {
+              const remainingMs = st.paused
+                ? (st.pausedRemaining || 0)
+                : Math.max(0, st.endTime - now);
+              const totalSec    = Math.round(st.totalMs / 1000);
+              const remainSec   = Math.round(remainingMs / 1000);
+              if (remainSec <= 0) continue; // already expired
+
+              const newTimer = {
+                id:         st.id,
+                domain:     st.linkedSite,
+                rewardName: st.title || st.linkedSite,
+                duration:   totalSec,
+                startTime:  now,
+                pausedAt:   st.paused ? now : null,
+                elapsed:    totalSec - remainSec,
+                status:     st.paused ? 'paused' : 'running',
+              };
+              extTimers.push(newTimer);
+              // Schedule alarm if running
+              if (!st.paused) {
+                chrome.alarms.create(`timer_${st.id}`, { delayInMinutes: remainSec / 60 });
+              }
+              changed = true;
             }
-            await storageSet({ activeTimers: cleaned });
-            await rebuildBlockingRules();
+          }
+
+          // Remove timers the extension has but site doesn't (orphans)
+          const cleaned = extTimers.filter(t => siteIds.has(t.id) || !t.domain);
+          if (cleaned.length !== extTimers.length) {
+            const removed = extTimers.filter(t => !siteIds.has(t.id) && t.domain);
+            for (const t of removed) chrome.alarms.clear(`timer_${t.id}`);
+            changed = true;
+          }
+
+          if (changed) {
+            await storageSet({ activeTimers: cleaned.length !== extTimers.length ? cleaned : extTimers });
           }
         }
+        // Always rebuild rules to reflect current state
+        await rebuildBlockingRules();
         sendResponse({ ok: true });
         break;
 
