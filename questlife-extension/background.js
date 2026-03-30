@@ -57,6 +57,11 @@ function ruleIdForDomain(domain, allDomains) {
 // Blocking rules management
 // ──────────────────────────────────────────
 
+/** Subdomains that should never be blocked even if parent domain is in the list */
+const WHITELISTED_SUBDOMAINS = [
+  'music.youtube.com',
+];
+
 /**
  * Rebuild all declarativeNetRequest dynamic rules based on:
  *  - blockedSites list (all domains that should be blocked)
@@ -86,20 +91,28 @@ async function rebuildBlockingRules() {
   // Build new rules for blocked (but not unlocked) domains
   const addRules = blockedSites
     .filter(domain => !unlockedDomains.has(domain))
-    .map((domain, idx) => ({
-      id:       RULE_ID_BASE + idx,
-      priority: 1,
-      action: {
-        type:        'redirect',
-        redirect: {
-          url: `${BLOCKED_PAGE_URL}?domain=${encodeURIComponent(domain)}`,
-        },
-      },
-      condition: {
+    .map((domain, idx) => {
+      // Find whitelisted subdomains for this domain
+      const excluded = WHITELISTED_SUBDOMAINS.filter(sub => sub.endsWith('.' + domain));
+      const condition = {
         urlFilter:     `||${domain}^`,
         resourceTypes: ['main_frame'],
-      },
-    }));
+      };
+      if (excluded.length > 0) {
+        condition.excludedRequestDomains = excluded;
+      }
+      return {
+        id:       RULE_ID_BASE + idx,
+        priority: 1,
+        action: {
+          type:     'redirect',
+          redirect: {
+            url: `${BLOCKED_PAGE_URL}?domain=${encodeURIComponent(domain)}`,
+          },
+        },
+        condition,
+      };
+    });
 
   await new Promise(resolve =>
     chrome.declarativeNetRequest.updateDynamicRules(
