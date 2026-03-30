@@ -821,6 +821,12 @@ function buyReward(rewardId) {
   };
   state.purchasedRewards.unshift(purchase);
 
+  // Start countdown timer BEFORE updateHeader/sync so the timer is in state
+  // when the extension receives the sync data (prevents race condition)
+  if (reward.timerMinutes) {
+    startTimer(reward.title, reward.emoji, reward.timerMinutes, reward.linkedSite);
+  }
+
   saveState();
   renderRewards();
   renderPurchasedRewards();
@@ -835,11 +841,6 @@ function buyReward(rewardId) {
     showToast(`💳 Куплено в кредит: "${escapeHtml(reward.title)}" ${reward.emoji}. Баланс: ${state.userStats.coins} 🪙 (кредит: ${state.creditData.count}/${DAILY_CREDIT_LIMIT})`, 'warning');
   } else {
     showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${effectivePrice} 🪙`, 'success');
-  }
-
-  // Start countdown timer if the reward has one
-  if (reward.timerMinutes) {
-    startTimer(reward.title, reward.emoji, reward.timerMinutes, reward.linkedSite);
   }
 }
 
@@ -2057,7 +2058,7 @@ function startTimer(title, emoji, minutes, linkedSite) {
 
   // Notify the extension to unblock the linked site
   if (linkedSite) {
-    extensionSendMessage({
+    const msg = {
       type: 'QUESTLIFE_START_TIMER',
       data: {
         id:         timer.id,
@@ -2065,7 +2066,14 @@ function startTimer(title, emoji, minutes, linkedSite) {
         rewardName: title,
         duration:   minutes * 60,
       },
-    });
+    };
+    extensionSendMessage(msg);
+    // Retry after 500ms — MV3 service worker may need time to wake up
+    setTimeout(() => extensionSendMessage(msg), 500);
+    // Force a full sync after 1s so extension can reconcile if both messages were lost
+    if (extensionConnected) {
+      setTimeout(() => syncExtensionState(), 1000);
+    }
   }
 }
 
@@ -3113,7 +3121,7 @@ window.addEventListener('message', event => {
         extensionConnected = true;
         updateExtensionStatus(true);
         // Send current state to the extension on first connect
-        syncExtensionState(true);
+        syncExtensionState();
       }
       break;
 
@@ -3186,29 +3194,39 @@ function updateExtensionStatus(connected) {
 }
 
 /** Sync current site state to the extension */
-function syncExtensionState(includeTimerCleanup = false) {
-  const payload = {
-    level:        state.userStats.level,
-    coins:        state.userStats.coins,
-    blockedSites: state.blockedSites,
-    // Include rewards so blocked.html can show "Buy and unlock" suggestions
-    rewards:      state.rewards.map(r => ({
-      id:           r.id,
-      title:        r.title,
-      emoji:        r.emoji,
-      price:        r.price,
-      timerMinutes: r.timerMinutes,
-      linkedSite:   r.linkedSite || null,
-    })),
-  };
-  // Only include timer cleanup data on initial connect to avoid race conditions
-  // with timer creation during normal operation (e.g. buyReward → updateHeader → sync → startTimer)
-  if (includeTimerCleanup) {
-    payload.siteActiveTimerIds = state.activeTimers
-      .filter(t => !t.finished)
-      .map(t => t.id);
-  }
-  extensionSendMessage({ type: 'QUESTLIFE_SYNC', data: payload });
+/** Sync current site state to the extension */
+function syncExtensionState() {
+  extensionSendMessage({
+    type: 'QUESTLIFE_SYNC',
+    data: {
+      level:        state.userStats.level,
+      coins:        state.userStats.coins,
+      blockedSites: state.blockedSites,
+      // Always send full active timer list so extension can reconcile
+      // (add missing timers, remove orphans)
+      activeTimers: state.activeTimers
+        .filter(t => !t.finished)
+        .map(t => ({
+          id:         t.id,
+          title:      t.title,
+          emoji:      t.emoji,
+          linkedSite: t.linkedSite,
+          endTime:    t.endTime,
+          totalMs:    t.totalMs,
+          paused:     t.paused,
+          pausedRemaining: t.pausedRemaining,
+        })),
+      // Include rewards so blocked.html can show "Buy and unlock" suggestions
+      rewards:      state.rewards.map(r => ({
+        id:           r.id,
+        title:        r.title,
+        emoji:        r.emoji,
+        price:        r.price,
+        timerMinutes: r.timerMinutes,
+        linkedSite:   r.linkedSite || null,
+      })),
+    },
+  });
 }
 
 /**
