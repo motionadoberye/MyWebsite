@@ -3113,7 +3113,7 @@ window.addEventListener('message', event => {
         extensionConnected = true;
         updateExtensionStatus(true);
         // Send current state to the extension on first connect
-        syncExtensionState();
+        syncExtensionState(true);
       }
       break;
 
@@ -3186,28 +3186,29 @@ function updateExtensionStatus(connected) {
 }
 
 /** Sync current site state to the extension */
-function syncExtensionState() {
-  extensionSendMessage({
-    type: 'QUESTLIFE_SYNC',
-    data: {
-      level:        state.userStats.level,
-      coins:        state.userStats.coins,
-      blockedSites: state.blockedSites,
-      // Include active timers so extension can clean up orphaned timers
-      siteActiveTimerIds: state.activeTimers
-        .filter(t => !t.finished)
-        .map(t => t.id),
-      // Include rewards so blocked.html can show "Buy and unlock" suggestions
-      rewards:      state.rewards.map(r => ({
-        id:           r.id,
-        title:        r.title,
-        emoji:        r.emoji,
-        price:        r.price,
-        timerMinutes: r.timerMinutes,
-        linkedSite:   r.linkedSite || null,
-      })),
-    },
-  });
+function syncExtensionState(includeTimerCleanup = false) {
+  const payload = {
+    level:        state.userStats.level,
+    coins:        state.userStats.coins,
+    blockedSites: state.blockedSites,
+    // Include rewards so blocked.html can show "Buy and unlock" suggestions
+    rewards:      state.rewards.map(r => ({
+      id:           r.id,
+      title:        r.title,
+      emoji:        r.emoji,
+      price:        r.price,
+      timerMinutes: r.timerMinutes,
+      linkedSite:   r.linkedSite || null,
+    })),
+  };
+  // Only include timer cleanup data on initial connect to avoid race conditions
+  // with timer creation during normal operation (e.g. buyReward → updateHeader → sync → startTimer)
+  if (includeTimerCleanup) {
+    payload.siteActiveTimerIds = state.activeTimers
+      .filter(t => !t.finished)
+      .map(t => t.id);
+  }
+  extensionSendMessage({ type: 'QUESTLIFE_SYNC', data: payload });
 }
 
 /**
