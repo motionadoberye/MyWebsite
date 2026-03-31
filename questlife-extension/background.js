@@ -268,6 +268,8 @@ async function checkOvertime() {
     try {
       const url = new URL(tab.url);
       const hostname = url.hostname.replace(/^www\./, '');
+      // Skip whitelisted subdomains
+      if (WHITELISTED_SUBDOMAINS.includes(hostname)) continue;
       const match = expiredDomains.find(d => hostname === d || hostname.endsWith('.' + d));
       if (match) {
         penalties.push({ domain: match, tabId: tab.id });
