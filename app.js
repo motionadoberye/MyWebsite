@@ -86,7 +86,6 @@ let state = {
     multiplier:     1.0,   // current price multiplier (1 = no inflation, 1.5 = +50%, etc.)
     activatedDate:  null,  // 'YYYY-MM-DD' last activation date (reset at midnight)
     timesActivated: 0,     // total times ever activated
-    maxMultiplier:  1.0,   // historical maximum multiplier
   },
   integrityData: {
     currentStreak:  0,     // consecutive days without cheating
@@ -341,8 +340,7 @@ function formatTaskTime(ms) {
 
   if (d > 0) {
     // Long format: "1д 4ч 23м"
-    const parts = [];
-    if (d > 0) parts.push(`${d}д`);
+    const parts = [`${d}д`];
     if (h > 0) parts.push(`${h}ч`);
     parts.push(`${m}м`);
     return parts.join(' ');
@@ -474,8 +472,6 @@ function updateTaskTimerDisplays() {
     renderActiveTasks();
   }
 }
-
-
 
 /** Build a new task object */
 function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
@@ -1853,10 +1849,6 @@ function applyCheatPenalty() {
   state.inflationData.multiplier    = Math.round((state.inflationData.multiplier + INFLATION_INCREMENT) * precision) / precision;
   state.inflationData.activatedDate = today;
   state.inflationData.timesActivated++;
-  if (state.inflationData.multiplier > state.inflationData.maxMultiplier) {
-    state.inflationData.maxMultiplier = state.inflationData.multiplier;
-  }
-
   // Cheat penalty also resets integrity streak
   doResetIntegrityStreak();
 
@@ -2471,10 +2463,6 @@ function submitDailyTask() {
   addDailyTask(title, desc, selectedDailyDifficulty, selectedDailyCategory);
   closeModal('daily-modal');
 }
-
-// ==========================================
-// Reset Progress (Feature 1)
-// ==========================================
 
 // ==========================================
 // Dreams System
@@ -3194,7 +3182,6 @@ function updateExtensionStatus(connected) {
 }
 
 /** Sync current site state to the extension */
-/** Sync current site state to the extension */
 function syncExtensionState() {
   extensionSendMessage({
     type: 'QUESTLIFE_SYNC',
@@ -3315,7 +3302,6 @@ function getLinkedSiteValue() {
   }
   return sel.value || null;
 }
-
 
 /**
  * Find an active (running or paused, not yet finished) timer for a given domain.
