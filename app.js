@@ -128,6 +128,18 @@ let state = {
     count:    0,    // number of credit purchases made today
     lastDate: null, // 'YYYY-MM-DD' of last credit use (used to detect new day)
   },
+  // ── Achievements ──
+  achievements: {
+    unlocked:      [],  // array of achievement ids
+    unlockedDates: {},  // { [id]: 'YYYY-MM-DD' } date of unlock
+  },
+  // ── Pomodoro / Focus ──
+  pomodoroStats: {
+    completedSessions: 0,   // total work sessions finished (25 min default)
+    totalFocusMinutes: 0,   // cumulative focused minutes earned
+    currentStreakDate: null,// 'YYYY-MM-DD' of last pomodoro completion day
+    lastSessionAt:     null,// ISO timestamp of last pomodoro completion
+  },
 };
 
 // ==========================================
@@ -155,6 +167,8 @@ function saveState() {
   localStorage.setItem('qm_blockedSites',    JSON.stringify(state.blockedSites));
   localStorage.setItem('qm_dailyDiscountData', JSON.stringify(state.dailyDiscountData));
   localStorage.setItem('qm_creditData',      JSON.stringify(state.creditData));
+  localStorage.setItem('qm_achievements',    JSON.stringify(state.achievements));
+  localStorage.setItem('qm_pomodoroStats',   JSON.stringify(state.pomodoroStats));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -208,6 +222,19 @@ function loadState() {
   // Load daily credit limit data (backward-compatible)
   const savedCreditData = parse('qm_creditData', null);
   if (savedCreditData) state.creditData = { ...state.creditData, ...savedCreditData };
+
+  // Load achievements (backward-compatible — may be absent)
+  const savedAchievements = parse('qm_achievements', null);
+  if (savedAchievements) {
+    state.achievements = {
+      unlocked:      Array.isArray(savedAchievements.unlocked) ? savedAchievements.unlocked : [],
+      unlockedDates: savedAchievements.unlockedDates || {},
+    };
+  }
+
+  // Load pomodoro stats (backward-compatible)
+  const savedPomodoro = parse('qm_pomodoroStats', null);
+  if (savedPomodoro) state.pomodoroStats = { ...state.pomodoroStats, ...savedPomodoro };
 }
 
 // ==========================================
@@ -631,6 +658,8 @@ function completeTask(taskId) {
       showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
     }, task.customReward ? 1200 : 600);
   }
+
+  checkAchievements();
 }
 
 /** Delete a task (active or completed) */
@@ -821,6 +850,8 @@ function buyReward(rewardId) {
   } else {
     showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${effectivePrice} 🪙`, 'success');
   }
+
+  checkAchievements();
 }
 
 // ==========================================
@@ -1162,6 +1193,7 @@ function renderImpact() {
 
   renderActivityChart();
   renderYearlyHeatmap();
+  renderAchievements();
   renderCategoryBreakdown();
   renderDifficultyBreakdown();
 }
@@ -1255,6 +1287,167 @@ function heatmapLevel(count) {
   if (count <= 5) return 2;
   if (count <= 9) return 3;
   return 4;
+}
+
+// ==========================================
+// Achievements System
+// ==========================================
+
+/**
+ * Achievement definitions.
+ * Each has an id, emoji, title, description, category and a check(state)
+ * function that returns true when the achievement should be unlocked.
+ * Categories drive grouping in the UI. `tier` is purely visual.
+ */
+const ACHIEVEMENTS = [
+  // ── Quests ──
+  { id: 'first_quest', emoji: '⚔️',  title: 'Первый квест',     desc: 'Выполни первую задачу',              category: 'quests',  tier: 'bronze', check: s => s.completedTasks.length >= 1 },
+  { id: 'quests_10',   emoji: '🗡️',  title: 'Десятка',          desc: 'Выполни 10 задач',                   category: 'quests',  tier: 'bronze', check: s => s.completedTasks.length >= 10 },
+  { id: 'quests_50',   emoji: '⚡',   title: 'Полтинник',        desc: 'Выполни 50 задач',                   category: 'quests',  tier: 'silver', check: s => s.completedTasks.length >= 50 },
+  { id: 'quests_100',  emoji: '💯',  title: 'Сотня',            desc: 'Выполни 100 задач',                  category: 'quests',  tier: 'silver', check: s => s.completedTasks.length >= 100 },
+  { id: 'quests_500',  emoji: '🏆',  title: 'Легенда',          desc: 'Выполни 500 задач',                  category: 'quests',  tier: 'gold',   check: s => s.completedTasks.length >= 500 },
+  { id: 'quests_1000', emoji: '👑',  title: 'Мифический',       desc: 'Выполни 1000 задач',                 category: 'quests',  tier: 'gold',   check: s => s.completedTasks.length >= 1000 },
+  { id: 'epic_5',      emoji: '🔴',  title: 'Эпический',        desc: 'Выполни 5 epic задач',               category: 'quests',  tier: 'silver', check: s => s.completedTasks.filter(t => t.difficulty === 'epic').length >= 5 },
+  { id: 'hard_25',     emoji: '🟠',  title: 'Железный',         desc: 'Выполни 25 hard задач',              category: 'quests',  tier: 'silver', check: s => s.completedTasks.filter(t => t.difficulty === 'hard').length >= 25 },
+
+  // ── Levels ──
+  { id: 'level_5',     emoji: '🎯',  title: 'Новичок',          desc: 'Достигни 5 уровня',                  category: 'levels',  tier: 'bronze', check: s => s.userStats.level >= 5 },
+  { id: 'level_10',    emoji: '📈',  title: 'Ученик',           desc: 'Достигни 10 уровня',                 category: 'levels',  tier: 'bronze', check: s => s.userStats.level >= 10 },
+  { id: 'level_25',    emoji: '🥇',  title: 'Мастер',           desc: 'Достигни 25 уровня',                 category: 'levels',  tier: 'silver', check: s => s.userStats.level >= 25 },
+  { id: 'level_50',    emoji: '💎',  title: 'Ветеран',          desc: 'Достигни 50 уровня',                 category: 'levels',  tier: 'gold',   check: s => s.userStats.level >= 50 },
+  { id: 'level_100',   emoji: '🌟',  title: 'Легендарный',      desc: 'Достигни 100 уровня',                category: 'levels',  tier: 'gold',   check: s => s.userStats.level >= 100 },
+
+  // ── Streaks ──
+  { id: 'streak_3',    emoji: '🔥',  title: 'Разогрев',         desc: 'Стрик 3 дня',                        category: 'streaks', tier: 'bronze', check: s => s.userStats.bestStreak >= 3 },
+  { id: 'streak_7',    emoji: '🔥',  title: 'Неделя',           desc: 'Стрик 7 дней',                       category: 'streaks', tier: 'silver', check: s => s.userStats.bestStreak >= 7 },
+  { id: 'streak_30',   emoji: '🚀',  title: 'Месяц',            desc: 'Стрик 30 дней',                      category: 'streaks', tier: 'gold',   check: s => s.userStats.bestStreak >= 30 },
+  { id: 'streak_100',  emoji: '⚡',   title: 'Сто дней',         desc: 'Стрик 100 дней',                     category: 'streaks', tier: 'gold',   check: s => s.userStats.bestStreak >= 100 },
+
+  // ── Integrity ──
+  { id: 'integrity_7',  emoji: '💪', title: 'Честный',          desc: 'Integrity-стрик 7 дней',             category: 'integrity', tier: 'silver', check: s => s.integrityData.bestStreak >= 7 },
+  { id: 'integrity_30', emoji: '🧘', title: 'Принципиальный',   desc: 'Integrity-стрик 30 дней',            category: 'integrity', tier: 'gold',   check: s => s.integrityData.bestStreak >= 30 },
+
+  // ── Dreams ──
+  { id: 'first_dream',  emoji: '🌟', title: 'Мечтатель',        desc: 'Достигни свою первую мечту',         category: 'dreams',  tier: 'bronze', check: s => s.dreamStats.achieved >= 1 },
+  { id: 'dreams_5',     emoji: '✨', title: 'Визионер',         desc: 'Достигни 5 мечт',                    category: 'dreams',  tier: 'gold',   check: s => s.dreamStats.achieved >= 5 },
+
+  // ── Rewards & Economy ──
+  { id: 'first_purchase', emoji: '🛒', title: 'Шопоголик',      desc: 'Купи первую награду',                category: 'economy', tier: 'bronze', check: s => s.purchasedRewards.length >= 1 },
+  { id: 'purchases_20',   emoji: '💸', title: 'Транжира',       desc: 'Сделай 20 покупок',                  category: 'economy', tier: 'silver', check: s => s.purchasedRewards.length >= 20 },
+  { id: 'coins_1000',     emoji: '💰', title: 'Богач',          desc: 'Заработай 1000 монет (всего)',       category: 'economy', tier: 'silver', check: s => s.userStats.totalCoinsEarned >= 1000 },
+  { id: 'coins_10000',    emoji: '🏦', title: 'Мультимиллионер', desc: 'Заработай 10 000 монет (всего)',    category: 'economy', tier: 'gold',   check: s => s.userStats.totalCoinsEarned >= 10000 },
+  { id: 'debt_king',      emoji: '🔻', title: 'Долговая яма',   desc: 'Впервые уйди в минус',               category: 'economy', tier: 'bronze', check: s => s.debtStats.timesWentNegative >= 1 },
+
+  // ── Daily ──
+  { id: 'daily_streak_7', emoji: '📅', title: 'Дисциплина',     desc: 'Daily-стрик 7 дней',                 category: 'daily',   tier: 'silver', check: s => s.dailyStats.dailyBestStreak >= 7 },
+
+  // ── Focus ──
+  { id: 'focus_1',        emoji: '🎯', title: 'Первый фокус',   desc: 'Заверши свой первый pomodoro',       category: 'focus',   tier: 'bronze', check: s => (s.pomodoroStats && s.pomodoroStats.completedSessions >= 1) },
+  { id: 'focus_10',       emoji: '🧠', title: 'Сфокусирован',   desc: 'Заверши 10 pomodoro',                category: 'focus',   tier: 'silver', check: s => (s.pomodoroStats && s.pomodoroStats.completedSessions >= 10) },
+  { id: 'focus_50',       emoji: '🧘', title: 'Дзен',           desc: 'Заверши 50 pomodoro',                category: 'focus',   tier: 'gold',   check: s => (s.pomodoroStats && s.pomodoroStats.completedSessions >= 50) },
+];
+
+/** Short human-readable label for each achievement category */
+const ACHIEVEMENT_CATEGORY_LABELS = {
+  quests:    '⚔️ Квесты',
+  levels:    '📈 Уровни',
+  streaks:   '🔥 Стрики',
+  integrity: '💪 Честность',
+  dreams:    '🌟 Мечты',
+  economy:   '💰 Экономика',
+  daily:     '📅 Ежедневные',
+  focus:     '🎯 Фокус',
+};
+
+/**
+ * Scan all achievements and unlock any whose check function now returns true.
+ * Returns the list of newly-unlocked achievement objects.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.silent=false] - Skip celebratory toasts. Used for the
+ *   retroactive first-load scan so existing players don't get flooded.
+ */
+function checkAchievements(options = {}) {
+  const { silent = false } = options;
+  const unlocked = new Set(state.achievements.unlocked);
+  const newly    = [];
+  for (const ach of ACHIEVEMENTS) {
+    if (unlocked.has(ach.id)) continue;
+    try {
+      if (ach.check(state)) {
+        unlocked.add(ach.id);
+        state.achievements.unlockedDates[ach.id] = todayStr();
+        newly.push(ach);
+      }
+    } catch (err) {
+      console.warn('[Achievements] check failed for', ach.id, err);
+    }
+  }
+  if (newly.length) {
+    state.achievements.unlocked = Array.from(unlocked);
+    saveState();
+    if (!silent) {
+      newly.forEach((ach, i) => {
+        // Stagger toasts so multiple unlocks don't overlap
+        setTimeout(() => {
+          showToast(`🏅 Ачивка: ${ach.emoji} ${ach.title}`, 'success');
+        }, 250 + i * 800);
+      });
+    }
+    // Re-render the achievements grid if Impact is currently visible
+    const impactVisible = document.getElementById('section-impact')?.classList.contains('active');
+    if (impactVisible) renderAchievements();
+  }
+  return newly;
+}
+
+/** Render the achievements grid in the Impact dashboard */
+function renderAchievements() {
+  const container = document.getElementById('achievements-grid');
+  const summary   = document.getElementById('achievements-summary');
+  if (!container) return;
+
+  const unlockedSet = new Set(state.achievements.unlocked);
+  const total       = ACHIEVEMENTS.length;
+  const unlockedCnt = ACHIEVEMENTS.filter(a => unlockedSet.has(a.id)).length;
+
+  if (summary) {
+    const pct = Math.round((unlockedCnt / total) * 100);
+    summary.textContent = `${unlockedCnt} / ${total} разблокировано (${pct}%)`;
+  }
+
+  // Group achievements by category
+  const groups = {};
+  for (const ach of ACHIEVEMENTS) {
+    if (!groups[ach.category]) groups[ach.category] = [];
+    groups[ach.category].push(ach);
+  }
+
+  const html = Object.keys(ACHIEVEMENT_CATEGORY_LABELS)
+    .filter(cat => groups[cat])
+    .map(cat => {
+      const items = groups[cat].map(ach => {
+        const isUnlocked = unlockedSet.has(ach.id);
+        const date       = state.achievements.unlockedDates[ach.id] || '';
+        const tierClass  = `ach-tier-${ach.tier || 'bronze'}`;
+        return `
+          <div class="achievement ${isUnlocked ? 'unlocked' : 'locked'} ${tierClass}"
+               title="${escapeHtml(ach.title)} — ${escapeHtml(ach.desc)}${isUnlocked && date ? ` · ${date}` : ''}">
+            <div class="achievement-emoji">${isUnlocked ? ach.emoji : '🔒'}</div>
+            <div class="achievement-title">${escapeHtml(ach.title)}</div>
+            <div class="achievement-desc">${escapeHtml(ach.desc)}</div>
+            ${isUnlocked && date ? `<div class="achievement-date">${date}</div>` : ''}
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="achievement-category">
+          <div class="achievement-category-title">${ACHIEVEMENT_CATEGORY_LABELS[cat]}</div>
+          <div class="achievement-list">${items}</div>
+        </div>`;
+    }).join('');
+
+  container.innerHTML = html;
 }
 
 /** Render the 7-day activity bar chart */
@@ -2061,6 +2254,7 @@ function updateIntegrityStreakForNewDay() {
     });
 
     saveState();
+    checkAchievements();
   }
 }
 
@@ -2401,6 +2595,7 @@ function completeDailyTask(taskId) {
 
   // Check for all-completed bonus
   checkDailyCompletionBonus();
+  checkAchievements();
 }
 
 /** Remove a daily quest permanently */
@@ -2742,6 +2937,7 @@ function achieveDream(dreamId) {
   updateDebtWarning();
 
   showDreamAchieved(dream, awardedXp, awardedCoins, bonusCoins);
+  checkAchievements();
 }
 
 /** Check and apply expired penalties for dreams with timers */
@@ -3721,6 +3917,17 @@ function init() {
   if (state.activeTimers.length > 0) {
     renderTimers();
     startTimerTick();
+  }
+
+  // Retroactively unlock achievements for legacy users with existing progress.
+  // Silent to avoid flooding the screen with dozens of toasts at once.
+  const hasPriorProgress = state.completedTasks.length > 0 || state.userStats.level > 1;
+  const hasNoAchievements = state.achievements.unlocked.length === 0;
+  if (hasPriorProgress && hasNoAchievements) {
+    checkAchievements({ silent: true });
+  } else {
+    // Normal path: only toasts truly new unlocks since last load
+    checkAchievements();
   }
 
   // Start task timer tick if any active tasks have timers

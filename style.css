@@ -2125,6 +2125,85 @@ body {
 .heatmap-legend-label { margin: 0 0.25rem; }
 
 /* ==========================================
+   Achievements
+   ========================================== */
+.achievement-category {
+  margin-top: 1rem;
+}
+.achievement-category:first-child { margin-top: 0; }
+
+.achievement-category-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.achievement-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.6rem;
+}
+
+.achievement {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.6rem;
+  text-align: center;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+.achievement.unlocked {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(16, 185, 129, 0.08));
+  border-color: rgba(124, 58, 237, 0.35);
+}
+.achievement.unlocked:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 18px rgba(124, 58, 237, 0.25);
+}
+.achievement.locked {
+  opacity: 0.5;
+  filter: grayscale(0.7);
+}
+.achievement.locked:hover {
+  opacity: 0.75;
+}
+
+.achievement.ach-tier-bronze.unlocked { border-color: rgba(205, 127, 50, 0.5); }
+.achievement.ach-tier-silver.unlocked { border-color: rgba(192, 192, 192, 0.5); }
+.achievement.ach-tier-gold.unlocked   {
+  border-color: rgba(251, 191, 36, 0.6);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(124, 58, 237, 0.1));
+}
+
+.achievement-emoji {
+  font-size: 1.75rem;
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+.achievement-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.2rem;
+}
+.achievement-desc {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.achievement-date {
+  font-size: 0.6rem;
+  color: var(--accent-green-light);
+  margin-top: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================
    Keyboard Shortcuts Modal
    ========================================== */
 .shortcuts-grid {
