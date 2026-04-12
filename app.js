@@ -3054,6 +3054,134 @@ function initDreamModal() {
 }
 
 /** Initialise the reset-all-progress modal */
+// ==========================================
+// Data Export / Import (Backup & Restore)
+// ==========================================
+
+const EXPORT_VERSION = 1;
+
+/** All localStorage keys that represent persistent Quest Manager state */
+const EXPORTABLE_KEYS = [
+  'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
+  'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats',
+  'qm_activeTimers', 'qm_inflationData', 'qm_integrityData', 'qm_debtStats',
+  'qm_timerStats', 'qm_dreams', 'qm_completedDreams', 'qm_dreamStats',
+  'qm_blockedSites', 'qm_dailyDiscountData', 'qm_creditData',
+  'qm_achievements', 'qm_pomodoroStats',
+];
+
+/** Build a serialisable export payload from localStorage */
+function buildExportPayload() {
+  saveState();  // ensure everything in memory is flushed first
+  const data = {};
+  for (const key of EXPORTABLE_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (raw == null) continue;
+    try { data[key] = JSON.parse(raw); }
+    catch { /* skip malformed slices */ }
+  }
+  return {
+    app:        'questmanager',
+    version:    EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    data,
+  };
+}
+
+/** Trigger a browser download of the current state as a JSON file */
+function exportData() {
+  try {
+    const payload = buildExportPayload();
+    const json    = JSON.stringify(payload, null, 2);
+    const blob    = new Blob([json], { type: 'application/json' });
+    const url     = URL.createObjectURL(blob);
+    const a       = document.createElement('a');
+    const stamp   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href     = url;
+    a.download = `quest-manager-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Give the browser a tick to start the download before revoking
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('📤 Backup сохранён!', 'success');
+  } catch (err) {
+    console.error('[Export] failed:', err);
+    showToast('❌ Экспорт не удался', 'error');
+  }
+}
+
+/**
+ * Replace all current state with data from a validated import payload.
+ * Only keys in EXPORTABLE_KEYS are touched; anything else in the file is ignored.
+ */
+function applyImportPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Некорректный формат файла');
+  }
+  if (payload.app !== 'questmanager') {
+    throw new Error('Это не файл Quest Manager');
+  }
+  if (!payload.data || typeof payload.data !== 'object') {
+    throw new Error('Нет данных для импорта');
+  }
+  // Wipe any existing slice we're about to overwrite so partial files
+  // don't leave stale values behind.
+  for (const key of EXPORTABLE_KEYS) {
+    if (key in payload.data) {
+      localStorage.setItem(key, JSON.stringify(payload.data[key]));
+    }
+  }
+}
+
+/** Read the user-selected file and apply it after confirmation */
+function handleImportFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let payload;
+    try {
+      payload = JSON.parse(reader.result);
+    } catch {
+      showToast('❌ Файл не является валидным JSON', 'error');
+      return;
+    }
+    const ok = confirm(
+      'Заменить все текущие данные содержимым файла?\n\n' +
+      'Это действие нельзя отменить. Рекомендуется сначала сделать экспорт текущих данных.'
+    );
+    if (!ok) return;
+    try {
+      applyImportPayload(payload);
+      showToast('📥 Backup восстановлен — перезагрузка…', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      console.error('[Import] failed:', err);
+      showToast(`❌ ${err.message || 'Импорт не удался'}`, 'error');
+    }
+  };
+  reader.onerror = () => showToast('❌ Не удалось прочитать файл', 'error');
+  reader.readAsText(file);
+}
+
+function initDataManagement() {
+  const exportBtn = document.getElementById('export-data-btn');
+  const importBtn = document.getElementById('import-data-btn');
+  const fileInput = document.getElementById('import-file-input');
+  if (!exportBtn || !importBtn || !fileInput) return;
+
+  exportBtn.addEventListener('click', exportData);
+  importBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (file) handleImportFile(file);
+    fileInput.value = '';  // allow re-selecting the same file
+  });
+}
+
+// ==========================================
+// Reset Modal
+// ==========================================
+
 function initResetModal() {
   const resetBtn    = document.getElementById('reset-progress-btn');
   const modal       = document.getElementById('reset-modal');
@@ -3076,15 +3204,8 @@ function initResetModal() {
 
   confirmBtn.addEventListener('click', () => {
     if (confirmInput.value.trim().toUpperCase() !== 'RESET') return;
-    // Wipe all localStorage keys and reload
-    const keys = [
-      'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
-      'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats', 'qm_activeTimers',
-      'qm_inflationData', 'qm_integrityData', 'qm_debtStats', 'qm_timerStats',
-      'qm_dreams', 'qm_completedDreams', 'qm_dreamStats', 'qm_blockedSites',
-      'qm_dailyDiscountData', 'qm_creditData',
-    ];
-    keys.forEach(k => localStorage.removeItem(k));
+    // Wipe all persisted Quest Manager data and reload
+    EXPORTABLE_KEYS.forEach(k => localStorage.removeItem(k));
     location.reload();
   });
 
@@ -3472,6 +3593,7 @@ function init() {
   initRewardModal();
   initDailyModal();
   initResetModal();
+  initDataManagement();
   initCheatPenaltyModal();
   initStreakResetModal();
   checkDreamPenalties();

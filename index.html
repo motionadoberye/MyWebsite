@@ -266,6 +266,19 @@
         <div id="difficulty-breakdown"></div>
       </div>
 
+      <!-- Backup & Restore -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3 class="card-title">💾 Backup & Restore</h3>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:0.85rem;line-height:1.5;">
+          Экспортируй все данные (задачи, награды, статистику, мечты) в JSON-файл или восстанови из резервной копии. Храни бэкапы в надёжном месте!
+        </p>
+        <div class="backup-actions">
+          <button class="btn btn-primary" id="export-data-btn">📤 Экспорт в JSON</button>
+          <button class="btn btn-ghost" id="import-data-btn">📥 Импорт из JSON</button>
+          <input type="file" id="import-file-input" accept="application/json,.json" hidden>
+        </div>
+      </div>
+
       <!-- Danger Zone -->
       <div class="danger-zone" style="margin-top: 1.5rem;">
         <div class="danger-zone-title">⚠️ Danger Zone</div>

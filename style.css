@@ -956,6 +956,16 @@ body {
 .btn-danger-filled:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
 /* ==========================================
+   Backup & Restore (Impact Dashboard)
+   ========================================== */
+.backup-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.backup-actions .btn { font-size: 0.85rem; }
+
+/* ==========================================
    Danger Zone (Impact Dashboard)
    ========================================== */
 .danger-zone {
