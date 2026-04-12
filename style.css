@@ -224,6 +224,23 @@ body {
   border-color: var(--accent-red);
 }
 
+.btn-header-icon {
+  background: rgba(124, 58, 237, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.btn-header-icon:hover {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: var(--accent-purple);
+}
+
 /* ==========================================
    Navigation
    ========================================== */
@@ -1337,6 +1354,7 @@ body {
 @media (max-width: 420px) {
   .integrity-badge { display: none; }
   .btn-cheat-micro { display: none; }
+  .btn-header-icon { display: none; }
 }
 
 /* ==========================================
@@ -1998,4 +2016,55 @@ body {
 .dream-stage-input {
   font-size: 0.85rem !important;
   padding: 0.4rem 0.6rem !important;
+}
+
+/* ==========================================
+   Keyboard Shortcuts Modal
+   ========================================== */
+.shortcuts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.shortcut-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-purple-light);
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.shortcut-group-title:first-child { margin-top: 0; }
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.15rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(42, 42, 62, 0.5);
+}
+.shortcut-row:last-child { border-bottom: none; }
+.shortcut-row span:last-child {
+  margin-left: auto;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+kbd {
+  display: inline-block;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  min-width: 1.4rem;
+  padding: 0.15rem 0.45rem;
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  text-align: center;
+  line-height: 1;
 }

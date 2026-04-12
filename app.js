@@ -1703,23 +1703,35 @@ function submitReward() {
 // Navigation
 // ==========================================
 
+/**
+ * Switch to a tab by its data-tab identifier. Triggers any tab-specific
+ * re-renders needed to keep the view up to date.
+ */
+function switchTab(target) {
+  const tab = document.querySelector(`.nav-tab[data-tab="${target}"]`);
+  if (!tab) return;
+
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+
+  tab.classList.add('active');
+  document.getElementById(`section-${target}`).classList.add('active');
+
+  // Refresh data each time the tab is opened
+  if (target === 'impact') renderImpact();
+  if (target === 'daily')  { renderDailyTasks(); updateDailyProgress(); }
+  if (target === 'dreams') { renderDreams(); renderAchievedDreams(); updateAchievedDreamsCount(); }
+}
+
+/** Return the data-tab id of the currently active section */
+function currentTab() {
+  const active = document.querySelector('.nav-tab.active');
+  return active ? active.dataset.tab : 'quests';
+}
+
 function initNav() {
   document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-
-      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-
-      tab.classList.add('active');
-      document.getElementById(`section-${target}`).classList.add('active');
-
-      // Refresh Impact data each time the tab is opened
-      if (target === 'impact') renderImpact();
-      // Refresh daily tasks when switching to daily tab
-      if (target === 'daily') { renderDailyTasks(); updateDailyProgress(); }
-      if (target === 'dreams') { renderDreams(); renderAchievedDreams(); updateAchievedDreamsCount(); }
-    });
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
 }
 
@@ -3629,17 +3641,130 @@ function init() {
     document.getElementById('levelup-overlay').classList.remove('show');
   });
 
-  // Global Escape key closes any open modal
+  initKeyboardShortcuts();
+  initShortcutsHelpModal();
+}
+
+// ==========================================
+// Keyboard Shortcuts
+// ==========================================
+
+/** Modal ids that Esc should close */
+const ALL_MODAL_IDS = [
+  'task-modal', 'reward-modal', 'daily-modal', 'reset-modal',
+  'cheat-penalty-modal', 'streak-reset-modal', 'dream-modal',
+  'shortcuts-modal',
+];
+
+/** True if any modal overlay is currently open */
+function isAnyModalOpen() {
+  return ALL_MODAL_IDS.some(id => {
+    const el = document.getElementById(id);
+    return el && el.classList.contains('open');
+  });
+}
+
+/** Close every open modal overlay */
+function closeAllModals() {
+  ALL_MODAL_IDS.forEach(id => closeModal(id));
+}
+
+/** True if the active element is a text input — we should not steal keys */
+function isEditingText() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
+/**
+ * Open the "create" modal that matches the currently visible tab.
+ * Falls back to the New Quest modal if the tab has no creator button.
+ */
+function triggerContextualNewAction() {
+  const tab = currentTab();
+  const buttonIdByTab = {
+    quests:  'add-task-btn',
+    rewards: 'add-reward-btn',
+    daily:   'add-daily-btn',
+    dreams:  'add-dream-btn',
+  };
+  const btnId = buttonIdByTab[tab] || 'add-task-btn';
+  const btn = document.getElementById(btnId);
+  if (btn) btn.click();
+}
+
+function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
+    // Escape always works — even inside inputs — and closes modals first
     if (e.key === 'Escape') {
-      closeModal('task-modal');
-      closeModal('reward-modal');
-      closeModal('daily-modal');
-      closeModal('reset-modal');
-      closeModal('cheat-penalty-modal');
-      closeModal('streak-reset-modal');
-      closeModal('dream-modal');
+      if (isAnyModalOpen()) {
+        closeAllModals();
+        e.preventDefault();
+      }
+      return;
     }
+
+    // Ignore shortcuts while the user is typing, or when modifier keys
+    // are pressed so we don't hijack browser/OS combos.
+    if (isEditingText()) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // If a modal is open, only Escape is handled (above)
+    if (isAnyModalOpen()) return;
+
+    const key = e.key;
+
+    // Tab navigation: 1–5
+    const tabByDigit = { '1': 'quests', '2': 'rewards', '3': 'impact', '4': 'daily', '5': 'dreams' };
+    if (tabByDigit[key]) {
+      switchTab(tabByDigit[key]);
+      e.preventDefault();
+      return;
+    }
+
+    // Single-letter actions (case-insensitive)
+    switch (key.toLowerCase()) {
+      case 'n':
+        triggerContextualNewAction();
+        e.preventDefault();
+        break;
+      case 'q': switchTab('quests');  e.preventDefault(); break;
+      case 'r': switchTab('rewards'); e.preventDefault(); break;
+      case 'i':
+      case 'd':
+        // Both "I" (Impact) and "D" (Dashboard) open the Impact tab
+        switchTab('impact');
+        e.preventDefault();
+        break;
+      case 'l': switchTab('daily');   e.preventDefault(); break;
+      case 'm': switchTab('dreams');  e.preventDefault(); break;
+      case 'f': {
+        // Focus / Pomodoro — opens if the feature is wired up
+        const focusBtn = document.getElementById('focus-btn');
+        if (focusBtn) { focusBtn.click(); e.preventDefault(); }
+        break;
+      }
+      case '?':
+        openModal('shortcuts-modal');
+        e.preventDefault();
+        break;
+    }
+  });
+}
+
+function initShortcutsHelpModal() {
+  const modal = document.getElementById('shortcuts-modal');
+  if (!modal) return;
+  const closeBtn  = document.getElementById('close-shortcuts-modal');
+  const okBtn     = document.getElementById('ok-shortcuts-btn');
+  const headerBtn = document.getElementById('shortcuts-btn');
+  if (closeBtn)  closeBtn.addEventListener('click',  () => closeModal('shortcuts-modal'));
+  if (okBtn)     okBtn.addEventListener('click',     () => closeModal('shortcuts-modal'));
+  if (headerBtn) headerBtn.addEventListener('click', () => openModal('shortcuts-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('shortcuts-modal');
   });
 }
 
