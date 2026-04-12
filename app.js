@@ -3643,6 +3643,67 @@ function init() {
 
   initKeyboardShortcuts();
   initShortcutsHelpModal();
+  initPWA();
+}
+
+// ==========================================
+// PWA — Service Worker & Install Prompt
+// ==========================================
+
+let deferredInstallPrompt = null;
+
+function initPWA() {
+  // Register the service worker (silently no-op on unsupported browsers)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => {
+          // When a new version is available, tell the SW to activate it
+          // immediately on next page load.
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // A newer SW is waiting — schedule takeover on next reload
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          });
+        })
+        .catch(err => console.warn('[PWA] SW registration failed:', err));
+    });
+  }
+
+  // Stash the install prompt so we can trigger it from a button
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.style.display = '';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.style.display = 'none';
+    showToast('📲 Quest Manager установлен!', 'success');
+  });
+
+  const installBtn = document.getElementById('pwa-install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      try {
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') {
+          installBtn.style.display = 'none';
+        }
+      } catch { /* ignore */ }
+      deferredInstallPrompt = null;
+    });
+  }
 }
 
 // ==========================================
