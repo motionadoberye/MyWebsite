@@ -2125,6 +2125,151 @@ body {
 .heatmap-legend-label { margin: 0 0.25rem; }
 
 /* ==========================================
+   Pomodoro / Focus Modal
+   ========================================== */
+.focus-phase {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0.35rem 0.8rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  width: fit-content;
+  margin: 0 auto 1rem;
+}
+.focus-phase-work {
+  color: var(--accent-purple-light);
+  border-color: rgba(124, 58, 237, 0.5);
+  background: rgba(124, 58, 237, 0.1);
+}
+.focus-phase-short {
+  color: var(--accent-green-light);
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.1);
+}
+.focus-phase-long {
+  color: var(--accent-yellow);
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.1);
+}
+.focus-phase-paused {
+  opacity: 0.6;
+}
+
+.focus-timer-display {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 5rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.focus-session-info {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.focus-controls {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+.focus-controls .btn { font-size: 0.85rem; padding: 0.55rem 1.1rem; }
+
+.focus-settings {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-bottom: 1rem;
+}
+.focus-settings-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+.focus-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.focus-settings-item label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+.focus-settings-item input {
+  text-align: center;
+  font-weight: 600;
+}
+.focus-presets {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.focus-block-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.focus-block-toggle input[type="checkbox"] {
+  margin-top: 0.15rem;
+  accent-color: var(--accent-purple);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.focus-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  padding: 0.85rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.focus-stat { text-align: center; }
+.focus-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent-purple-light);
+  font-variant-numeric: tabular-nums;
+}
+.focus-stat-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 480px) {
+  .focus-timer-display { font-size: 3.75rem; }
+  .focus-settings-grid { grid-template-columns: 1fr; }
+}
+
+/* ==========================================
    Achievements
    ========================================== */
 .achievement-category {

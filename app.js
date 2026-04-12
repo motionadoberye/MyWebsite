@@ -1535,6 +1535,292 @@ function renderDifficultyBreakdown() {
 }
 
 // ==========================================
+// Pomodoro / Focus Timer
+// ==========================================
+
+/**
+ * Runtime state for the Pomodoro timer. Not persisted — on reload the
+ * running session is lost, which is the correct UX for a focus session
+ * (you shouldn't be reloading during focus anyway).
+ */
+const pomodoroState = {
+  running:           false,
+  phase:             'work',  // 'work' | 'short' | 'long'
+  endTime:           0,
+  paused:            false,
+  pausedRemainingMs: 0,
+  workMin:           25,
+  shortMin:          5,
+  longMin:           15,
+  sessionsInCycle:   0,       // completed work sessions since last long break
+  blockSites:        true,
+  tickHandle:        null,
+};
+
+const POMODORO_XP_PER_SESSION    = 5;
+const POMODORO_COINS_PER_SESSION = 3;
+
+function pomodoroPhaseLabel(phase) {
+  return phase === 'work'  ? '🎯 Работа'
+       : phase === 'short' ? '☕ Короткий перерыв'
+       : phase === 'long'  ? '🌴 Длинный перерыв'
+       : 'Готов к фокусу';
+}
+
+function pomodoroPhaseMinutes(phase) {
+  return phase === 'work'  ? pomodoroState.workMin
+       : phase === 'short' ? pomodoroState.shortMin
+       : pomodoroState.longMin;
+}
+
+/** Format ms as MM:SS (zero-padded) */
+function formatMmSs(ms) {
+  if (ms < 0) ms = 0;
+  const totalSecs = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function pomodoroStartPhase(phase) {
+  pomodoroState.phase   = phase;
+  pomodoroState.endTime = Date.now() + pomodoroPhaseMinutes(phase) * 60 * 1000;
+  pomodoroState.paused  = false;
+  pomodoroState.pausedRemainingMs = 0;
+  pomodoroState.running = true;
+
+  // When entering a work phase with "block sites" enabled, stop any active
+  // site-unlock timers so the extension re-blocks everything.
+  if (phase === 'work' && pomodoroState.blockSites) {
+    const toStop = state.activeTimers.filter(t => t.linkedSite && !t.finished).map(t => t.id);
+    if (toStop.length > 0) {
+      toStop.forEach(id => stopTimer(id));
+      showToast('🔒 Разблокировки сброшены — фокус-режим', 'info');
+    }
+  }
+
+  pomodoroStartTick();
+  renderPomodoro();
+  showToast(`${pomodoroPhaseLabel(phase)} начата`, 'info');
+}
+
+function pomodoroPause() {
+  if (!pomodoroState.running || pomodoroState.paused) return;
+  pomodoroState.pausedRemainingMs = Math.max(0, pomodoroState.endTime - Date.now());
+  pomodoroState.paused = true;
+  renderPomodoro();
+}
+
+function pomodoroResume() {
+  if (!pomodoroState.running || !pomodoroState.paused) return;
+  pomodoroState.endTime            = Date.now() + pomodoroState.pausedRemainingMs;
+  pomodoroState.pausedRemainingMs  = 0;
+  pomodoroState.paused             = false;
+  renderPomodoro();
+}
+
+function pomodoroSkip() {
+  if (!pomodoroState.running) return;
+  pomodoroAdvance({ completed: false });
+}
+
+function pomodoroStop() {
+  pomodoroState.running = false;
+  pomodoroState.paused  = false;
+  pomodoroState.phase   = 'work';
+  if (pomodoroState.tickHandle) {
+    clearInterval(pomodoroState.tickHandle);
+    pomodoroState.tickHandle = null;
+  }
+  renderPomodoro();
+  showToast('⏹ Фокус-сессия остановлена', 'info');
+}
+
+/**
+ * Advance to the next phase. If the current work phase was fully completed,
+ * award XP/coins and update stats; otherwise (skipped) just move on.
+ */
+function pomodoroAdvance({ completed }) {
+  const wasWork = pomodoroState.phase === 'work';
+
+  if (wasWork && completed) {
+    // Award XP and coins
+    const previousCoins = state.userStats.coins;
+    addXP(POMODORO_XP_PER_SESSION);
+    state.userStats.coins            += POMODORO_COINS_PER_SESSION;
+    state.userStats.totalCoinsEarned += POMODORO_COINS_PER_SESSION;
+    checkDebtPayoff(previousCoins);
+
+    // Update pomodoro stats
+    state.pomodoroStats.completedSessions += 1;
+    state.pomodoroStats.totalFocusMinutes += pomodoroState.workMin;
+    state.pomodoroStats.lastSessionAt      = new Date().toISOString();
+    state.pomodoroStats.currentStreakDate  = todayStr();
+
+    // Count as activity so the heatmap reflects focus work
+    const today = todayStr();
+    state.activityLog[today] = (state.activityLog[today] || 0) + 1;
+
+    pomodoroState.sessionsInCycle += 1;
+    saveState();
+    updateHeader();
+    // Refresh the Impact dashboard if it's currently visible
+    if (document.getElementById('section-impact')?.classList.contains('active')) {
+      renderImpact();
+    }
+    showToast(
+      `🎯 Сессия завершена! +${POMODORO_XP_PER_SESSION} XP +${POMODORO_COINS_PER_SESSION} 🪙`,
+      'success'
+    );
+    checkAchievements();
+  }
+
+  // Pick next phase
+  let next;
+  if (wasWork) {
+    // Long break after every 4th completed work session
+    next = (pomodoroState.sessionsInCycle % 4 === 0 && pomodoroState.sessionsInCycle > 0)
+      ? 'long'
+      : 'short';
+  } else {
+    next = 'work';
+  }
+  pomodoroStartPhase(next);
+}
+
+function pomodoroStartTick() {
+  if (pomodoroState.tickHandle) return;
+  pomodoroState.tickHandle = setInterval(() => {
+    if (!pomodoroState.running) return;
+    if (pomodoroState.paused) { renderPomodoro(); return; }
+    const remaining = pomodoroState.endTime - Date.now();
+    if (remaining <= 0) {
+      pomodoroAdvance({ completed: true });
+    } else {
+      renderPomodoro();
+    }
+  }, 500);
+}
+
+function renderPomodoro() {
+  const phaseBadge = document.getElementById('focus-phase-badge');
+  const timerEl    = document.getElementById('focus-timer-display');
+  const sessionEl  = document.getElementById('focus-session-current');
+  const settingsEl = document.getElementById('focus-settings');
+  if (!phaseBadge || !timerEl) return;
+
+  // Phase badge
+  phaseBadge.textContent = pomodoroState.running
+    ? pomodoroPhaseLabel(pomodoroState.phase)
+    : 'Готов к фокусу';
+  phaseBadge.className = 'focus-phase';
+  if (pomodoroState.running) {
+    phaseBadge.classList.add(`focus-phase-${pomodoroState.phase}`);
+    if (pomodoroState.paused) phaseBadge.classList.add('focus-phase-paused');
+  }
+
+  // Big time display
+  let remaining;
+  if (!pomodoroState.running) {
+    remaining = pomodoroState.workMin * 60 * 1000;
+  } else if (pomodoroState.paused) {
+    remaining = pomodoroState.pausedRemainingMs;
+  } else {
+    remaining = Math.max(0, pomodoroState.endTime - Date.now());
+  }
+  timerEl.textContent = formatMmSs(remaining);
+
+  if (sessionEl) {
+    const inCycle = pomodoroState.sessionsInCycle % 4;
+    sessionEl.textContent = String(inCycle);
+  }
+
+  // Button visibility
+  const show = (id, visible) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible ? '' : 'none';
+  };
+  show('focus-start-btn',  !pomodoroState.running);
+  show('focus-pause-btn',   pomodoroState.running && !pomodoroState.paused);
+  show('focus-resume-btn',  pomodoroState.running &&  pomodoroState.paused);
+  show('focus-skip-btn',    pomodoroState.running);
+  show('focus-stop-btn',    pomodoroState.running);
+
+  // Hide settings while running
+  if (settingsEl) settingsEl.style.display = pomodoroState.running ? 'none' : '';
+
+  // Stats
+  const totalEl   = document.getElementById('focus-stat-total');
+  const minutesEl = document.getElementById('focus-stat-minutes');
+  const todayEl   = document.getElementById('focus-stat-today');
+  if (totalEl)   totalEl.textContent   = state.pomodoroStats.completedSessions;
+  if (minutesEl) minutesEl.textContent = state.pomodoroStats.totalFocusMinutes;
+  if (todayEl)   todayEl.textContent   = state.pomodoroStats.currentStreakDate === todayStr() ? '✓' : '—';
+}
+
+function initPomodoroModal() {
+  const openBtn   = document.getElementById('focus-btn');
+  const closeBtn  = document.getElementById('close-focus-modal');
+  const modal     = document.getElementById('focus-modal');
+  const startBtn  = document.getElementById('focus-start-btn');
+  const pauseBtn  = document.getElementById('focus-pause-btn');
+  const resumeBtn = document.getElementById('focus-resume-btn');
+  const skipBtn   = document.getElementById('focus-skip-btn');
+  const stopBtn   = document.getElementById('focus-stop-btn');
+  if (!openBtn || !modal) return;
+
+  const workInput  = document.getElementById('focus-work-min');
+  const shortInput = document.getElementById('focus-short-min');
+  const longInput  = document.getElementById('focus-long-min');
+  const blockCheck = document.getElementById('focus-block-sites');
+
+  openBtn.addEventListener('click', () => {
+    workInput.value    = pomodoroState.workMin;
+    shortInput.value   = pomodoroState.shortMin;
+    longInput.value    = pomodoroState.longMin;
+    blockCheck.checked = pomodoroState.blockSites;
+    renderPomodoro();
+    openModal('focus-modal');
+  });
+  closeBtn.addEventListener('click', () => closeModal('focus-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('focus-modal');
+  });
+
+  const readSettings = () => {
+    pomodoroState.workMin    = Math.max(1, parseInt(workInput.value,  10) || 25);
+    pomodoroState.shortMin   = Math.max(1, parseInt(shortInput.value, 10) || 5);
+    pomodoroState.longMin    = Math.max(1, parseInt(longInput.value,  10) || 15);
+    pomodoroState.blockSites = blockCheck.checked;
+  };
+
+  [workInput, shortInput, longInput].forEach(input => {
+    input.addEventListener('change', readSettings);
+  });
+  blockCheck.addEventListener('change', readSettings);
+
+  // Presets inside the focus modal
+  document.querySelectorAll('.focus-presets .preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      workInput.value  = btn.dataset.work;
+      shortInput.value = btn.dataset.short;
+      longInput.value  = btn.dataset.long;
+      readSettings();
+      renderPomodoro();
+    });
+  });
+
+  startBtn.addEventListener('click', () => {
+    readSettings();
+    pomodoroStartPhase('work');
+  });
+  pauseBtn.addEventListener('click',  pomodoroPause);
+  resumeBtn.addEventListener('click', pomodoroResume);
+  skipBtn.addEventListener('click',   pomodoroSkip);
+  stopBtn.addEventListener('click',   pomodoroStop);
+}
+
+// ==========================================
 // Toast Notifications
 // ==========================================
 
@@ -3894,6 +4180,7 @@ function init() {
   initDailyModal();
   initResetModal();
   initDataManagement();
+  initPomodoroModal();
   initCheatPenaltyModal();
   initStreakResetModal();
   checkDreamPenalties();
@@ -4013,7 +4300,7 @@ function initPWA() {
 const ALL_MODAL_IDS = [
   'task-modal', 'reward-modal', 'daily-modal', 'reset-modal',
   'cheat-penalty-modal', 'streak-reset-modal', 'dream-modal',
-  'shortcuts-modal',
+  'shortcuts-modal', 'focus-modal',
 ];
 
 /** True if any modal overlay is currently open */
