@@ -371,15 +371,7 @@ function applyTaskPenalty(task, showNotification = true) {
     state.userStats.coins -= penalty.coins;
     state.timerStats.penaltyCoinsLost += penalty.coins;
 
-    if (previousCoins >= 0 && state.userStats.coins < 0) {
-      state.debtStats.timesWentNegative++;
-    }
-    if (state.userStats.coins < 0) {
-      const debtAbs = Math.abs(state.userStats.coins);
-      if (debtAbs > state.debtStats.biggestDebt) {
-        state.debtStats.biggestDebt = debtAbs;
-      }
-    }
+    trackDebtIncurred(previousCoins);
     if (showNotification) {
       setTimeout(() => showToast(`💸 Штраф за просрочку: -${penalty.coins} 🪙  "${escapeHtml(task.title)}"`, 'error'), 200);
     }
@@ -798,16 +790,7 @@ function buyReward(rewardId) {
 
   state.userStats.coins -= effectivePrice;
 
-  // Track debt statistics
-  if (previousCoins >= 0 && state.userStats.coins < 0) {
-    state.debtStats.timesWentNegative++;
-  }
-  if (state.userStats.coins < 0) {
-    const debtAbs = Math.abs(state.userStats.coins);
-    if (debtAbs > state.debtStats.biggestDebt) {
-      state.debtStats.biggestDebt = debtAbs;
-    }
-  }
+  trackDebtIncurred(previousCoins);
 
   const purchase = {
     ...reward,
@@ -1759,6 +1742,24 @@ function escapeHtml(str) {
 // ==========================================
 
 /**
+ * Track debt statistics after a coin balance decrease.
+ * Increments `timesWentNegative` when the balance crosses from non-negative
+ * to negative, and updates `biggestDebt` if the new absolute debt is a record.
+ * @param {number} previousCoins - Coin balance before the change
+ */
+function trackDebtIncurred(previousCoins) {
+  if (previousCoins >= 0 && state.userStats.coins < 0) {
+    state.debtStats.timesWentNegative++;
+  }
+  if (state.userStats.coins < 0) {
+    const debtAbs = Math.abs(state.userStats.coins);
+    if (debtAbs > state.debtStats.biggestDebt) {
+      state.debtStats.biggestDebt = debtAbs;
+    }
+  }
+}
+
+/**
  * Check if the user just paid off their debt (balance crossed from negative to non-negative).
  * Awards DEBT_PAYOFF_XP_BONUS XP and shows a celebration toast.
  * @param {number} previousCoins - Coin balance before the change
@@ -2094,12 +2095,18 @@ function pauseTimer(timerId) {
   }
   saveState();
   renderTimers();
+  // Safety net: push a full sync so the extension reconciles its timer state
+  // against ours even if the targeted message above is lost.
+  if (timer.linkedSite && extensionConnected) {
+    syncExtensionState();
+  }
 }
 
 /** Remove a timer */
 function stopTimer(timerId) {
   const timer = state.activeTimers.find(t => t.id === timerId);
-  if (timer && timer.linkedSite) {
+  const hadLinkedSite = !!(timer && timer.linkedSite);
+  if (hadLinkedSite) {
     extensionSendMessage({ type: 'QUESTLIFE_STOP_TIMER', data: { id: timerId } });
   }
   state.activeTimers = state.activeTimers.filter(t => t.id !== timerId);
@@ -2109,6 +2116,11 @@ function stopTimer(timerId) {
   if (state.activeTimers.length === 0 && timerInterval) {
     clearInterval(timerInterval);
     timerInterval = null;
+  }
+  // Safety net: reconcile with the extension so the removed timer is cleared
+  // even if QUESTLIFE_STOP_TIMER was dropped.
+  if (hadLinkedSite && extensionConnected) {
+    syncExtensionState();
   }
 }
 
@@ -2124,6 +2136,7 @@ function updateTimerDisplays() {
   if (!container) return;
 
   let needsFullRender = false;
+  let anyFinished     = false;
 
   state.activeTimers.forEach(timer => {
     if (timer.paused || timer.finished) return;
@@ -2132,6 +2145,7 @@ function updateTimerDisplays() {
     if (remaining <= 0 && !timer.finished) {
       timer.finished = true;
       needsFullRender = true;
+      anyFinished     = true;
       saveState();
     }
 
@@ -2152,6 +2166,12 @@ function updateTimerDisplays() {
   } else {
     // Keep blocked-site statuses live (e.g. countdown minutes)
     refreshBlockedSiteStatuses();
+  }
+
+  // If a timer finished on this side, push a sync so the extension removes
+  // it and re-blocks the domain without waiting for its own alarm.
+  if (anyFinished && extensionConnected) {
+    syncExtensionState();
   }
 }
 
@@ -2633,13 +2653,7 @@ function checkDreamPenalties() {
           const previousCoins = state.userStats.coins;
           state.userStats.coins -= dream.penalty.coins;
           state.timerStats.penaltyCoinsLost += dream.penalty.coins;
-          if (previousCoins >= 0 && state.userStats.coins < 0) {
-            state.debtStats.timesWentNegative++;
-          }
-          if (state.userStats.coins < 0) {
-            const debtAbs = Math.abs(state.userStats.coins);
-            if (debtAbs > state.debtStats.biggestDebt) state.debtStats.biggestDebt = debtAbs;
-          }
+          trackDebtIncurred(previousCoins);
           // Small delay avoids the toast competing visually with the re-render triggered above
           setTimeout(() => showToast(`💸 Просрочена мечта: -${dream.penalty.coins} 🪙 "${escapeHtml(dream.title)}"`, 'error'), 200);
         }
