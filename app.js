@@ -1161,8 +1161,100 @@ function renderImpact() {
   if (dreamsXpEl)       dreamsXpEl.textContent       = state.dreamStats.xpFromDreams;
 
   renderActivityChart();
+  renderYearlyHeatmap();
   renderCategoryBreakdown();
   renderDifficultyBreakdown();
+}
+
+/**
+ * Render a 53-week GitHub-style contribution heatmap of the last year.
+ * Each cell represents one day; color intensity scales with completedCount.
+ * The grid is ordered column-by-column starting from 52 weeks ago, with
+ * Monday at the top so it aligns with the existing day labels.
+ */
+function renderYearlyHeatmap() {
+  const grid     = document.getElementById('heatmap-grid');
+  const monthsEl = document.getElementById('heatmap-months');
+  const totalEl  = document.getElementById('heatmap-total');
+  if (!grid) return;
+
+  // Number of cells = 53 full weeks (371 days) — ensures we always show
+  // at least a full year of activity regardless of the day-of-week today.
+  const TOTAL_WEEKS = 53;
+  const now = new Date();
+  // Normalise "today" to midnight local time
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Day of week with Monday as 0 (JS: Sunday=0 → convert)
+  const todayDow = (today.getDay() + 6) % 7;
+  // The top-left cell of the grid is the Monday (TOTAL_WEEKS-1)*7 + todayDow days ago
+  const startOffsetDays = (TOTAL_WEEKS - 1) * 7 + todayDow;
+  const start = new Date(today);
+  start.setDate(start.getDate() - startOffsetDays);
+
+  // Build grid as 53 weeks × 7 days, column-major (CSS grid-auto-flow: column)
+  const cells = [];
+  const monthLabels = [];  // { weekIndex, label } collected while iterating
+  let total = 0;
+  let lastMonthLabelWeek = -99;
+
+  for (let w = 0; w < TOTAL_WEEKS; w++) {
+    for (let d = 0; d < 7; d++) {
+      const dayDate = new Date(start);
+      dayDate.setDate(start.getDate() + w * 7 + d);
+
+      // Cells after today are blank (future days)
+      const isFuture = dayDate > today;
+      const y  = dayDate.getFullYear();
+      const m  = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(dayDate.getDate()).padStart(2, '0');
+      const key = `${y}-${m}-${dd}`;
+      const count = isFuture ? 0 : (state.activityLog[key] || 0);
+      if (!isFuture) total += count;
+
+      const level = heatmapLevel(count);
+      const isToday = dayDate.getTime() === today.getTime();
+      const title = isFuture
+        ? ''
+        : `${key} — ${count} task${count !== 1 ? 's' : ''}`;
+
+      cells.push(
+        `<div class="heatmap-cell heatmap-l${level}${isFuture ? ' heatmap-empty' : ''}${isToday ? ' heatmap-today' : ''}" ${title ? `title="${title}"` : ''}></div>`
+      );
+
+      // First day of a month on the top row (d === 0) → add month label
+      if (d === 0 && dayDate.getDate() <= 7 && w - lastMonthLabelWeek >= 3) {
+        monthLabels.push({
+          week:  w,
+          label: dayDate.toLocaleDateString('en-US', { month: 'short' }),
+        });
+        lastMonthLabelWeek = w;
+      }
+    }
+  }
+
+  grid.style.gridTemplateColumns = `repeat(${TOTAL_WEEKS}, var(--heatmap-cell))`;
+  grid.innerHTML = cells.join('');
+
+  if (monthsEl) {
+    // Position each month label at its week column using grid-column-start
+    monthsEl.style.gridTemplateColumns = `repeat(${TOTAL_WEEKS}, var(--heatmap-cell))`;
+    monthsEl.innerHTML = monthLabels.map(ml =>
+      `<span style="grid-column: ${ml.week + 1} / span 3;">${ml.label}</span>`
+    ).join('');
+  }
+
+  if (totalEl) {
+    totalEl.textContent = `${total} ${total === 1 ? 'задача' : 'задач'} за год`;
+  }
+}
+
+/** Map a task count to one of 5 intensity levels (0 = empty) */
+function heatmapLevel(count) {
+  if (count <= 0) return 0;
+  if (count <= 2) return 1;
+  if (count <= 5) return 2;
+  if (count <= 9) return 3;
+  return 4;
 }
 
 /** Render the 7-day activity bar chart */
