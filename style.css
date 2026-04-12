@@ -1015,12 +1015,6 @@ body {
   color: var(--accent-purple-light);
 }
 
-/* Timer indicator on reward cards */
-.reward-timer-badge {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-bottom: 0.75rem;
-}
 
 /* ==========================================
    Floating Timers Widget
@@ -1050,9 +1044,9 @@ body {
 }
 .timer-widget.finished {
   border-color: var(--accent-green);
-  animation: timerPulse 1s ease infinite;
+  animation: timerFinishedPulse 1s ease infinite;
 }
-@keyframes timerPulse {
+@keyframes timerFinishedPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
   50%       { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
 }
