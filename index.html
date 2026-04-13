@@ -781,6 +781,28 @@
             <input type="checkbox" id="focus-block-sites" checked>
             <span>🔒 Блокировать отвлекающие сайты во время фокуса (остановит активные разблокировки)</span>
           </label>
+
+          <div class="focus-reward-section">
+            <div class="focus-section-title">🎁 Награда за фокус</div>
+            <p class="focus-section-desc">
+              Завершил work-фазу — на время break-фазы автоматически разблокируется выбранный сайт. Таймер идёт параллельно отдыху и не ставится на паузу.
+            </p>
+            <select class="form-input" id="focus-reward-site">
+              <option value="">— Не использовать —</option>
+            </select>
+          </div>
+
+          <div class="focus-sound-section">
+            <div class="focus-section-title">🎧 Звук фокуса</div>
+            <p class="focus-section-desc">
+              Фоновый шум во время work-фазы (на break автоматически выключается). Звуки генерируются в браузере, ничего не качается.
+            </p>
+            <div class="focus-sound-grid" id="focus-sound-grid"></div>
+            <div class="focus-volume-row">
+              <label for="focus-volume">🔊 Громкость</label>
+              <input type="range" id="focus-volume" min="0" max="100" value="50" step="1">
+            </div>
+          </div>
         </div>
 
         <!-- Stats summary -->
