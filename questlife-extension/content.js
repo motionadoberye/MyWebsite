@@ -19,6 +19,8 @@
     'QUESTLIFE_STOP_TIMER',
     'QUESTLIFE_SYNC',
     'QUESTLIFE_BLOCK_ALL',
+    'QUESTLIFE_NOTIFY',
+    'QUESTLIFE_SET_REMINDERS',
   ]);
 
   window.addEventListener('message', event => {

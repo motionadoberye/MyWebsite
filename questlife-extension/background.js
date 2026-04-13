@@ -303,6 +303,55 @@ async function checkOvertime() {
 }
 
 // ──────────────────────────────────────────
+// Daily reminder scheduling
+// ──────────────────────────────────────────
+
+/**
+ * (Re)schedule the daily reminder alarm based on user settings.
+ * settings = { enabled: bool, time: "HH:MM", message?: string }
+ */
+async function scheduleDailyReminder(settings) {
+  // Always clear any existing alarm first so we don't stack duplicates
+  chrome.alarms.clear('daily_reminder');
+
+  if (!settings || !settings.enabled) return;
+
+  const [hhRaw, mmRaw] = String(settings.time || '20:00').split(':');
+  const hh = Math.max(0, Math.min(23, parseInt(hhRaw, 10) || 20));
+  const mm = Math.max(0, Math.min(59, parseInt(mmRaw, 10) || 0));
+
+  const now  = new Date();
+  const when = new Date();
+  when.setHours(hh, mm, 0, 0);
+  // If today's time already passed, schedule for tomorrow
+  if (when.getTime() <= now.getTime()) {
+    when.setDate(when.getDate() + 1);
+  }
+
+  chrome.alarms.create('daily_reminder', {
+    when:            when.getTime(),
+    periodInMinutes: 24 * 60, // repeat daily
+  });
+}
+
+/** Fire the daily reminder notification */
+async function fireDailyReminder() {
+  const settings = await storageGet('reminderSettings', null);
+  if (!settings || !settings.enabled) return;
+
+  const msg = settings.message ||
+    'Открой Quest Manager и закрой ежедневные задачи — стрик не ждёт!';
+
+  chrome.notifications.create(`daily_${Date.now()}`, {
+    type:     'basic',
+    iconUrl:  'icons/icon128.png',
+    title:    '🗡️ Quest Manager',
+    message:  msg,
+    priority: 1,
+  });
+}
+
+// ──────────────────────────────────────────
 // Communication helpers
 // ──────────────────────────────────────────
 
@@ -451,6 +500,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
 
+      case 'QUESTLIFE_NOTIFY': {
+        // Generic notification passthrough — the site can ask the extension
+        // to show a native OS notification (e.g. level up, achievement).
+        const { title, message: body, id, icon } = message.data || {};
+        if (title && body) {
+          chrome.notifications.create(id || `ql_${Date.now()}`, {
+            type:     'basic',
+            iconUrl:  icon || 'icons/icon128.png',
+            title:    String(title),
+            message:  String(body),
+            priority: 1,
+          });
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+
+      case 'QUESTLIFE_SET_REMINDERS': {
+        // Save user reminder settings and (re-)schedule the daily alarm.
+        const settings = message.data || {};
+        await storageSet({ reminderSettings: settings });
+        await scheduleDailyReminder(settings);
+        sendResponse({ ok: true });
+        break;
+      }
+
       // ── Queries from popup ──
 
       case 'GET_STATE':
@@ -526,6 +601,9 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name === 'overtime_check') {
     await checkOvertime();
   }
+  if (alarm.name === 'daily_reminder') {
+    await fireDailyReminder();
+  }
 });
 
 // ──────────────────────────────────────────
@@ -542,6 +620,12 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   // Set up recurring alarm for overtime checks (every 1 minute)
   chrome.alarms.create('overtime_check', { periodInMinutes: 1 });
+
+  // Re-arm the daily reminder if user settings already exist
+  const settings = await storageGet('reminderSettings', null);
+  if (settings && settings.enabled) {
+    await scheduleDailyReminder(settings);
+  }
 });
 
 /** Re-apply blocking rules when the service worker restarts */
@@ -551,6 +635,15 @@ chrome.runtime.onStartup.addListener(async () => {
   const existing = await new Promise(resolve => chrome.alarms.get('overtime_check', resolve));
   if (!existing) {
     chrome.alarms.create('overtime_check', { periodInMinutes: 1 });
+  }
+  // Recreate the daily reminder alarm if the user had one configured
+  const reminderAlarm = await new Promise(resolve =>
+    chrome.alarms.get('daily_reminder', resolve));
+  if (!reminderAlarm) {
+    const settings = await storageGet('reminderSettings', null);
+    if (settings && settings.enabled) {
+      await scheduleDailyReminder(settings);
+    }
   }
   // Recreate alarms for running timers that may have been lost
   const activeTimers = await storageGet('activeTimers', []);

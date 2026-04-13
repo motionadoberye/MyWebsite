@@ -321,6 +321,37 @@
         </div>
       </div>
 
+      <!-- Notifications & Reminders -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3 class="card-title">🔔 Уведомления</h3>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:0.85rem;line-height:1.5;">
+          Нативные уведомления приходят через расширение QuestLife. Включи напоминание и укажи время — расширение пнёт тебя каждый день, чтобы ты закрыл ежедневки и не потерял стрик.
+        </p>
+        <div class="notifications-settings">
+          <label class="notif-toggle">
+            <input type="checkbox" id="notifications-enabled">
+            <span>Показывать уведомления (уровень, ачивки, события)</span>
+          </label>
+          <label class="notif-toggle">
+            <input type="checkbox" id="reminder-enabled">
+            <span>Ежедневное напоминание</span>
+          </label>
+          <div class="notif-row">
+            <label for="reminder-time">Время напоминания:</label>
+            <input type="time" id="reminder-time" value="20:00">
+          </div>
+          <div class="notif-row">
+            <label for="reminder-message">Текст (необязательно):</label>
+            <input type="text" id="reminder-message" placeholder="Например: Закрой задачи дня!" maxlength="120">
+          </div>
+          <div class="notif-actions">
+            <button class="btn btn-primary" id="save-reminder-btn">💾 Сохранить</button>
+            <button class="btn btn-ghost" id="test-notif-btn">🔔 Тест уведомления</button>
+          </div>
+          <div class="notif-status" id="reminder-status"></div>
+        </div>
+      </div>
+
       <!-- Danger Zone -->
       <div class="danger-zone" style="margin-top: 1.5rem;">
         <div class="danger-zone-title">⚠️ Danger Zone</div>

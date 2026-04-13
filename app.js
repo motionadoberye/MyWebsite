@@ -140,6 +140,14 @@ let state = {
     currentStreakDate: null,// 'YYYY-MM-DD' of last pomodoro completion day
     lastSessionAt:     null,// ISO timestamp of last pomodoro completion
   },
+  // ── Notifications / Reminders ──
+  // Master on/off switch for native OS notifications via extension
+  notificationsEnabled: true,
+  reminderSettings: {
+    enabled: false,         // true = daily reminder active
+    time:    '20:00',       // HH:MM (24-hour)
+    message: '',            // optional override message (empty = default)
+  },
 };
 
 // ==========================================
@@ -169,6 +177,8 @@ function saveState() {
   localStorage.setItem('qm_creditData',      JSON.stringify(state.creditData));
   localStorage.setItem('qm_achievements',    JSON.stringify(state.achievements));
   localStorage.setItem('qm_pomodoroStats',   JSON.stringify(state.pomodoroStats));
+  localStorage.setItem('qm_notificationsEnabled', JSON.stringify(state.notificationsEnabled));
+  localStorage.setItem('qm_reminderSettings', JSON.stringify(state.reminderSettings));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -235,6 +245,13 @@ function loadState() {
   // Load pomodoro stats (backward-compatible)
   const savedPomodoro = parse('qm_pomodoroStats', null);
   if (savedPomodoro) state.pomodoroStats = { ...state.pomodoroStats, ...savedPomodoro };
+
+  // Load notification + reminder settings (backward-compatible)
+  const savedNotifEnabled = parse('qm_notificationsEnabled', null);
+  if (savedNotifEnabled !== null) state.notificationsEnabled = !!savedNotifEnabled;
+
+  const savedReminders = parse('qm_reminderSettings', null);
+  if (savedReminders) state.reminderSettings = { ...state.reminderSettings, ...savedReminders };
 }
 
 // ==========================================
@@ -1393,6 +1410,15 @@ function checkAchievements(options = {}) {
           showToast(`🏅 Ачивка: ${ach.emoji} ${ach.title}`, 'success');
         }, 250 + i * 800);
       });
+      // Native notification (one per unlock — the extension decides
+      // whether to actually show it, e.g. skipped when user is active).
+      newly.forEach(ach => {
+        notifyViaExtension({
+          title:   `🏅 Ачивка: ${ach.emoji} ${ach.title}`,
+          message: ach.desc || 'Новое достижение разблокировано!',
+          id:      `ach_${ach.id}`,
+        });
+      });
     }
     // Re-render the achievements grid if Impact is currently visible
     const impactVisible = document.getElementById('section-impact')?.classList.contains('active');
@@ -1854,6 +1880,13 @@ function showLevelUp(level) {
   // Auto-dismiss after 2.5 s
   setTimeout(() => overlay.classList.remove('show'), 2500);
   showToast(`🎉 Level Up! You are now level ${level}!`, 'success');
+  // Also ask the extension to fire a native OS notification so the user
+  // sees it even with the tab in the background.
+  notifyViaExtension({
+    title: `🎉 Level ${level}!`,
+    message: `Ты достиг нового уровня. Продолжай в том же духе!`,
+    id: `levelup_${level}_${Date.now()}`,
+  });
 }
 
 // ==========================================
@@ -3654,6 +3687,7 @@ const EXPORTABLE_KEYS = [
   'qm_timerStats', 'qm_dreams', 'qm_completedDreams', 'qm_dreamStats',
   'qm_blockedSites', 'qm_dailyDiscountData', 'qm_creditData',
   'qm_achievements', 'qm_pomodoroStats',
+  'qm_notificationsEnabled', 'qm_reminderSettings',
 ];
 
 /** Build a serialisable export payload from localStorage */
@@ -3765,6 +3799,79 @@ function initDataManagement() {
 }
 
 // ==========================================
+// Notifications & Reminders Settings
+// ==========================================
+
+/** Initialise the notifications + daily reminder settings card in Impact. */
+function initNotificationsSettings() {
+  const notifEnabled    = document.getElementById('notifications-enabled');
+  const reminderEnabled = document.getElementById('reminder-enabled');
+  const reminderTime    = document.getElementById('reminder-time');
+  const reminderMessage = document.getElementById('reminder-message');
+  const saveBtn         = document.getElementById('save-reminder-btn');
+  const testBtn         = document.getElementById('test-notif-btn');
+  const statusEl        = document.getElementById('reminder-status');
+  if (!notifEnabled || !reminderEnabled || !reminderTime || !saveBtn) return;
+
+  // Populate current values
+  notifEnabled.checked    = state.notificationsEnabled !== false;
+  reminderEnabled.checked = !!state.reminderSettings.enabled;
+  reminderTime.value      = state.reminderSettings.time    || '20:00';
+  reminderMessage.value   = state.reminderSettings.message || '';
+
+  const setStatus = (text, cls = '') => {
+    statusEl.textContent = text;
+    statusEl.className   = 'notif-status' + (cls ? ' ' + cls : '');
+  };
+
+  notifEnabled.addEventListener('change', () => {
+    state.notificationsEnabled = notifEnabled.checked;
+    saveState();
+    setStatus(notifEnabled.checked
+      ? 'Уведомления включены.'
+      : 'Уведомления отключены.', notifEnabled.checked ? 'ok' : 'warning');
+  });
+
+  saveBtn.addEventListener('click', () => {
+    state.reminderSettings = {
+      enabled: reminderEnabled.checked,
+      time:    reminderTime.value || '20:00',
+      message: reminderMessage.value.trim(),
+    };
+    saveState();
+    syncReminderSettings();
+    if (reminderEnabled.checked) {
+      setStatus(`Напоминание сохранено на ${state.reminderSettings.time} каждый день.`, 'ok');
+      showToast('🔔 Напоминание сохранено', 'success');
+    } else {
+      setStatus('Ежедневное напоминание выключено.', 'warning');
+      showToast('🔕 Напоминание выключено', 'info');
+    }
+  });
+
+  testBtn.addEventListener('click', () => {
+    if (!extensionConnected) {
+      setStatus('Расширение не подключено — установите QuestLife extension.', 'warning');
+      return;
+    }
+    if (state.notificationsEnabled === false) {
+      setStatus('Уведомления отключены — сначала включи их.', 'warning');
+      return;
+    }
+    notifyViaExtension({
+      title:   '🔔 Тест уведомления',
+      message: 'Если ты это видишь — всё работает! 🎉',
+      id:      `test_${Date.now()}`,
+    });
+    setStatus('Уведомление отправлено. Проверь системный трей.', 'ok');
+  });
+
+  if (!extensionConnected) {
+    setStatus('Расширение не подключено. Установи его, чтобы получать уведомления.', 'warning');
+  }
+}
+
+// ==========================================
 // Reset Modal
 // ==========================================
 
@@ -3817,6 +3924,30 @@ function extensionSendMessage(message) {
   window.postMessage(message, '*');
 }
 
+/**
+ * Ask the extension to show a native OS notification. Silently no-ops
+ * if the extension isn't installed or if the user has disabled
+ * in-site notifications (state.notificationsEnabled === false).
+ */
+function notifyViaExtension({ title, message, id, icon }) {
+  if (state.notificationsEnabled === false) return;
+  if (!extensionConnected) return;
+  if (!title || !message) return;
+  extensionSendMessage({
+    type: 'QUESTLIFE_NOTIFY',
+    data: { title, message, id, icon },
+  });
+}
+
+/** Push current reminder settings to the extension so it can (re)schedule. */
+function syncReminderSettings() {
+  if (!extensionConnected) return;
+  extensionSendMessage({
+    type: 'QUESTLIFE_SET_REMINDERS',
+    data: state.reminderSettings || { enabled: false, time: '20:00' },
+  });
+}
+
 /** Listen for messages relayed back from the extension */
 window.addEventListener('message', event => {
   if (!event.data || typeof event.data !== 'object') return;
@@ -3831,6 +3962,9 @@ window.addEventListener('message', event => {
         updateExtensionStatus(true);
         // Send current state to the extension on first connect
         syncExtensionState();
+        // Also (re)send reminder settings so the extension has an up-to-date
+        // schedule even if the user configured reminders while offline.
+        syncReminderSettings();
       }
       break;
 
@@ -4180,6 +4314,7 @@ function init() {
   initDailyModal();
   initResetModal();
   initDataManagement();
+  initNotificationsSettings();
   initPomodoroModal();
   initCheatPenaltyModal();
   initStreakResetModal();
