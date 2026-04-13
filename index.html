@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>⚔️ Quest Manager</title>
+  <meta name="description" content="Gamified task manager with XP, coins, streaks, dreams and site blocking.">
+  <meta name="theme-color" content="#7c3aed">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="icon" type="image/png" sizes="128x128" href="questlife-extension/icons/icon128.png">
+  <link rel="apple-touch-icon" href="questlife-extension/icons/icon128.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -40,6 +46,9 @@
           <span class="integrity-label-text">days</span>
         </div>
         <button class="btn-cheat-micro" id="i-cheated-btn" title="Я сорвался — сбросить стрик" aria-label="I Cheated">😔</button>
+        <button class="btn-header-icon" id="focus-btn" title="Focus / Pomodoro (F)" aria-label="Focus">🎯</button>
+        <button class="btn-header-icon" id="shortcuts-btn" title="Клавиатурные сокращения (?)" aria-label="Keyboard shortcuts">⌨️</button>
+        <button class="btn-header-icon pwa-install-btn" id="pwa-install-btn" title="Установить приложение" aria-label="Install PWA" style="display:none;">📲</button>
       </div>
     </div>
   </header>
@@ -257,6 +266,39 @@
       </div>
 
       <div class="card" style="margin-top: 1.5rem;">
+        <div class="heatmap-header">
+          <h3 class="card-title" style="margin-bottom:0;">Activity — Last Year</h3>
+          <div class="heatmap-total" id="heatmap-total"></div>
+        </div>
+        <div class="heatmap-scroll">
+          <div class="heatmap-months" id="heatmap-months"></div>
+          <div class="heatmap-body">
+            <div class="heatmap-days" id="heatmap-days">
+              <span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span>
+            </div>
+            <div class="heatmap-grid" id="heatmap-grid"></div>
+          </div>
+        </div>
+        <div class="heatmap-legend">
+          <span class="heatmap-legend-label">Меньше</span>
+          <span class="heatmap-cell heatmap-l0"></span>
+          <span class="heatmap-cell heatmap-l1"></span>
+          <span class="heatmap-cell heatmap-l2"></span>
+          <span class="heatmap-cell heatmap-l3"></span>
+          <span class="heatmap-cell heatmap-l4"></span>
+          <span class="heatmap-legend-label">Больше</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
+        <div class="heatmap-header">
+          <h3 class="card-title" style="margin-bottom:0;">🏅 Achievements</h3>
+          <div class="heatmap-total" id="achievements-summary"></div>
+        </div>
+        <div id="achievements-grid"></div>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
         <h3 class="card-title">Tasks by Category</h3>
         <div id="category-breakdown"></div>
       </div>
@@ -264,6 +306,50 @@
       <div class="card" style="margin-top: 1.5rem;">
         <h3 class="card-title">Tasks by Difficulty</h3>
         <div id="difficulty-breakdown"></div>
+      </div>
+
+      <!-- Backup & Restore -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3 class="card-title">💾 Backup & Restore</h3>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:0.85rem;line-height:1.5;">
+          Экспортируй все данные (задачи, награды, статистику, мечты) в JSON-файл или восстанови из резервной копии. Храни бэкапы в надёжном месте!
+        </p>
+        <div class="backup-actions">
+          <button class="btn btn-primary" id="export-data-btn">📤 Экспорт в JSON</button>
+          <button class="btn btn-ghost" id="import-data-btn">📥 Импорт из JSON</button>
+          <input type="file" id="import-file-input" accept="application/json,.json" hidden>
+        </div>
+      </div>
+
+      <!-- Notifications & Reminders -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3 class="card-title">🔔 Уведомления</h3>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:0.85rem;line-height:1.5;">
+          Нативные уведомления приходят через расширение QuestLife. Включи напоминание и укажи время — расширение пнёт тебя каждый день, чтобы ты закрыл ежедневки и не потерял стрик.
+        </p>
+        <div class="notifications-settings">
+          <label class="notif-toggle">
+            <input type="checkbox" id="notifications-enabled">
+            <span>Показывать уведомления (уровень, ачивки, события)</span>
+          </label>
+          <label class="notif-toggle">
+            <input type="checkbox" id="reminder-enabled">
+            <span>Ежедневное напоминание</span>
+          </label>
+          <div class="notif-row">
+            <label for="reminder-time">Время напоминания:</label>
+            <input type="time" id="reminder-time" value="20:00">
+          </div>
+          <div class="notif-row">
+            <label for="reminder-message">Текст (необязательно):</label>
+            <input type="text" id="reminder-message" placeholder="Например: Закрой задачи дня!" maxlength="120">
+          </div>
+          <div class="notif-actions">
+            <button class="btn btn-primary" id="save-reminder-btn">💾 Сохранить</button>
+            <button class="btn btn-ghost" id="test-notif-btn">🔔 Тест уведомления</button>
+          </div>
+          <div class="notif-status" id="reminder-status"></div>
+        </div>
       </div>
 
       <!-- Danger Zone -->
@@ -603,6 +689,119 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" id="cancel-streak-reset-btn">Отмена</button>
         <button class="btn btn-danger-filled" id="confirm-streak-reset-btn">Сбросить стрик</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== KEYBOARD SHORTCUTS MODAL ===== -->
+  <div class="modal-overlay" id="shortcuts-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">⌨️ Клавиатурные сокращения</h3>
+        <button class="modal-close" id="close-shortcuts-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="shortcuts-grid">
+          <div class="shortcut-group-title">Навигация</div>
+          <div class="shortcut-row"><kbd>1</kbd><span>Quests</span></div>
+          <div class="shortcut-row"><kbd>2</kbd><span>Rewards</span></div>
+          <div class="shortcut-row"><kbd>3</kbd> <span>(или <kbd>D</kbd>)</span><span>Dashboard (Impact)</span></div>
+          <div class="shortcut-row"><kbd>4</kbd> <span>(или <kbd>L</kbd>)</span><span>Daily</span></div>
+          <div class="shortcut-row"><kbd>5</kbd> <span>(или <kbd>M</kbd>)</span><span>Dreams</span></div>
+
+          <div class="shortcut-group-title">Действия</div>
+          <div class="shortcut-row"><kbd>N</kbd><span>Создать новое (по текущей вкладке)</span></div>
+          <div class="shortcut-row"><kbd>F</kbd><span>Focus / Pomodoro</span></div>
+          <div class="shortcut-row"><kbd>Q</kbd><span>Быстро в Quests</span></div>
+          <div class="shortcut-row"><kbd>R</kbd><span>Быстро в Rewards</span></div>
+
+          <div class="shortcut-group-title">Интерфейс</div>
+          <div class="shortcut-row"><kbd>Esc</kbd><span>Закрыть окно</span></div>
+          <div class="shortcut-row"><kbd>?</kbd><span>Показать эту справку</span></div>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.78rem;margin-top:0.75rem;">Сокращения не работают во время ввода текста.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="ok-shortcuts-btn">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== FOCUS / POMODORO MODAL ===== -->
+  <div class="modal-overlay" id="focus-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 class="modal-title">🎯 Focus / Pomodoro</h3>
+        <button class="modal-close" id="close-focus-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Phase badge -->
+        <div class="focus-phase" id="focus-phase-badge">Готов к фокусу</div>
+
+        <!-- Big timer display -->
+        <div class="focus-timer-display" id="focus-timer-display">25:00</div>
+
+        <!-- Session counter -->
+        <div class="focus-session-info" id="focus-session-info">
+          Сессия <span id="focus-session-current">0</span> / 4 до длинного перерыва
+        </div>
+
+        <!-- Controls -->
+        <div class="focus-controls">
+          <button class="btn btn-primary" id="focus-start-btn">▶️ Старт</button>
+          <button class="btn btn-ghost"   id="focus-pause-btn" style="display:none;">⏸ Пауза</button>
+          <button class="btn btn-ghost"   id="focus-resume-btn" style="display:none;">▶️ Продолжить</button>
+          <button class="btn btn-ghost"   id="focus-skip-btn" style="display:none;">⏭ Пропустить фазу</button>
+          <button class="btn btn-danger"  id="focus-stop-btn" style="display:none;">⏹ Стоп</button>
+        </div>
+
+        <!-- Settings (collapsed while running) -->
+        <div class="focus-settings" id="focus-settings">
+          <div class="focus-settings-title">Настройки</div>
+          <div class="focus-settings-grid">
+            <div class="focus-settings-item">
+              <label>Работа (мин)</label>
+              <input class="form-input" type="number" id="focus-work-min" min="1" max="90" value="25">
+            </div>
+            <div class="focus-settings-item">
+              <label>Короткий перерыв</label>
+              <input class="form-input" type="number" id="focus-short-min" min="1" max="30" value="5">
+            </div>
+            <div class="focus-settings-item">
+              <label>Длинный перерыв</label>
+              <input class="form-input" type="number" id="focus-long-min" min="1" max="60" value="15">
+            </div>
+          </div>
+          <div class="focus-presets">
+            <button type="button" class="preset-btn" data-work="25" data-short="5"  data-long="15">25/5 (классика)</button>
+            <button type="button" class="preset-btn" data-work="50" data-short="10" data-long="20">50/10 (глубокий)</button>
+            <button type="button" class="preset-btn" data-work="15" data-short="3"  data-long="10">15/3 (короткий)</button>
+          </div>
+          <label class="focus-block-toggle">
+            <input type="checkbox" id="focus-block-sites" checked>
+            <span>🔒 Блокировать отвлекающие сайты во время фокуса (остановит активные разблокировки)</span>
+          </label>
+        </div>
+
+        <!-- Stats summary -->
+        <div class="focus-stats">
+          <div class="focus-stat">
+            <div class="focus-stat-value" id="focus-stat-total">0</div>
+            <div class="focus-stat-label">Всего сессий</div>
+          </div>
+          <div class="focus-stat">
+            <div class="focus-stat-value" id="focus-stat-minutes">0</div>
+            <div class="focus-stat-label">Минут фокуса</div>
+          </div>
+          <div class="focus-stat">
+            <div class="focus-stat-value" id="focus-stat-today">0</div>
+            <div class="focus-stat-label">Сегодня</div>
+          </div>
+        </div>
+
+        <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.85rem;">
+          +5 XP и +3 🪙 за каждую завершённую рабочую сессию. Каждые 4 сессии → длинный перерыв.
+        </p>
       </div>
     </div>
   </div>

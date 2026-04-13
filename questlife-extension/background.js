@@ -75,10 +75,16 @@ async function rebuildBlockingRules() {
   const activeTimers = await storageGet('activeTimers', []);
   const now = Date.now();
 
-  // Collect domains that are currently unlocked (running, not paused, not expired)
+  // Collect domains that are currently unlocked (running, not paused, not expired).
+  // Real expiry time = startTime + (duration - elapsed) * 1000, because `duration`
+  // is total seconds and `elapsed` is seconds already consumed in prior run intervals.
   const unlockedDomains = new Set(
     activeTimers
-      .filter(t => t.status === 'running' && t.startTime + t.duration * 1000 > now)
+      .filter(t => {
+        if (t.status !== 'running') return false;
+        const remainingMs = Math.max(0, t.duration - t.elapsed) * 1000;
+        return t.startTime + remainingMs > now;
+      })
       .map(t => t.domain)
   );
 
@@ -165,8 +171,10 @@ async function pauseTimer(timerId) {
   if (!timer || timer.status !== 'running') return;
 
   const now = Date.now();
-  const secondsRun = Math.floor((now - timer.startTime) / 1000) - timer.elapsed;
-  timer.elapsed  += secondsRun;
+  // Seconds run since the last start/resume (startTime is reset on each resume,
+  // so we just add this interval to the already-accumulated elapsed total).
+  const secondsThisInterval = Math.max(0, Math.floor((now - timer.startTime) / 1000));
+  timer.elapsed  += secondsThisInterval;
   timer.pausedAt  = now;
   timer.status    = 'paused';
 
@@ -295,6 +303,55 @@ async function checkOvertime() {
 }
 
 // ──────────────────────────────────────────
+// Daily reminder scheduling
+// ──────────────────────────────────────────
+
+/**
+ * (Re)schedule the daily reminder alarm based on user settings.
+ * settings = { enabled: bool, time: "HH:MM", message?: string }
+ */
+async function scheduleDailyReminder(settings) {
+  // Always clear any existing alarm first so we don't stack duplicates
+  chrome.alarms.clear('daily_reminder');
+
+  if (!settings || !settings.enabled) return;
+
+  const [hhRaw, mmRaw] = String(settings.time || '20:00').split(':');
+  const hh = Math.max(0, Math.min(23, parseInt(hhRaw, 10) || 20));
+  const mm = Math.max(0, Math.min(59, parseInt(mmRaw, 10) || 0));
+
+  const now  = new Date();
+  const when = new Date();
+  when.setHours(hh, mm, 0, 0);
+  // If today's time already passed, schedule for tomorrow
+  if (when.getTime() <= now.getTime()) {
+    when.setDate(when.getDate() + 1);
+  }
+
+  chrome.alarms.create('daily_reminder', {
+    when:            when.getTime(),
+    periodInMinutes: 24 * 60, // repeat daily
+  });
+}
+
+/** Fire the daily reminder notification */
+async function fireDailyReminder() {
+  const settings = await storageGet('reminderSettings', null);
+  if (!settings || !settings.enabled) return;
+
+  const msg = settings.message ||
+    'Открой Quest Manager и закрой ежедневные задачи — стрик не ждёт!';
+
+  chrome.notifications.create(`daily_${Date.now()}`, {
+    type:     'basic',
+    iconUrl:  'icons/icon128.png',
+    title:    '🗡️ Quest Manager',
+    message:  msg,
+    priority: 1,
+  });
+}
+
+// ──────────────────────────────────────────
 // Communication helpers
 // ──────────────────────────────────────────
 
@@ -372,56 +429,66 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           await storageSet({ questLifeRewards: message.data.rewards });
         }
         // ── Full timer reconciliation ──
-        // Site is the source of truth. Add missing timers, remove orphans.
+        // The website is the source of truth. On every sync we rebuild the
+        // extension's timer state from scratch using the site's absolute
+        // `endTime` / `pausedRemaining` so any drift from pause/resume, lost
+        // messages, or service-worker sleep is corrected immediately.
         if (Array.isArray(message.data.activeTimers)) {
-          const siteTimers  = message.data.activeTimers;
-          const siteIds     = new Set(siteTimers.map(t => t.id));
-          const extTimers   = await storageGet('activeTimers', []);
-          const extIds      = new Set(extTimers.map(t => t.id));
-          let changed       = false;
-          const now         = Date.now();
+          const siteTimers = message.data.activeTimers.filter(t => t.linkedSite);
+          const extTimers  = await storageGet('activeTimers', []);
+          const now        = Date.now();
 
-          // Add timers the site has but extension doesn't
+          // Clear alarms for every extension timer that will be replaced or removed.
+          for (const t of extTimers) {
+            if (t.domain) chrome.alarms.clear(`timer_${t.id}`);
+          }
+
+          // Keep any extension-local timers that aren't tied to a domain (defensive).
+          const reconciled = extTimers.filter(t => !t.domain);
+
           for (const st of siteTimers) {
-            if (!st.linkedSite) continue; // only sync timers with linked sites
-            if (!extIds.has(st.id)) {
-              const remainingMs = st.paused
-                ? (st.pausedRemaining || 0)
-                : Math.max(0, st.endTime - now);
-              const totalSec    = Math.round(st.totalMs / 1000);
-              const remainSec   = Math.round(remainingMs / 1000);
-              if (remainSec <= 0) continue; // already expired
+            const totalSec = Math.max(1, Math.round(st.totalMs / 1000));
+            const remainingMs = st.paused
+              ? Math.max(0, st.pausedRemaining || 0)
+              : Math.max(0, st.endTime - now);
+            const remainSec = Math.max(0, Math.round(remainingMs / 1000));
 
-              const newTimer = {
+            if (remainSec <= 0 && !st.paused) {
+              // Timer already finished on the site — keep as expired so
+              // rebuildBlockingRules re-blocks the domain immediately.
+              reconciled.push({
                 id:         st.id,
                 domain:     st.linkedSite,
                 rewardName: st.title || st.linkedSite,
                 duration:   totalSec,
                 startTime:  now,
-                pausedAt:   st.paused ? now : null,
-                elapsed:    totalSec - remainSec,
-                status:     st.paused ? 'paused' : 'running',
-              };
-              extTimers.push(newTimer);
-              // Schedule alarm if running
-              if (!st.paused) {
-                chrome.alarms.create(`timer_${st.id}`, { delayInMinutes: remainSec / 60 });
-              }
-              changed = true;
+                pausedAt:   null,
+                elapsed:    totalSec,
+                status:     'expired',
+              });
+              continue;
+            }
+
+            // Reconciled running/paused timer: startTime = now, elapsed
+            // represents total - remaining so (duration - elapsed) === remaining.
+            reconciled.push({
+              id:         st.id,
+              domain:     st.linkedSite,
+              rewardName: st.title || st.linkedSite,
+              duration:   totalSec,
+              startTime:  now,
+              pausedAt:   st.paused ? now : null,
+              elapsed:    Math.max(0, totalSec - remainSec),
+              status:     st.paused ? 'paused' : 'running',
+            });
+
+            if (!st.paused && remainSec > 0) {
+              chrome.alarms.create(`timer_${st.id}`, { delayInMinutes: remainSec / 60 });
             }
           }
 
-          // Remove timers the extension has but site doesn't (orphans)
-          const cleaned = extTimers.filter(t => siteIds.has(t.id) || !t.domain);
-          if (cleaned.length !== extTimers.length) {
-            const removed = extTimers.filter(t => !siteIds.has(t.id) && t.domain);
-            for (const t of removed) chrome.alarms.clear(`timer_${t.id}`);
-            changed = true;
-          }
-
-          if (changed) {
-            await storageSet({ activeTimers: cleaned.length !== extTimers.length ? cleaned : extTimers });
-          }
+          // Orphan alarms for timers the site has removed were already cleared above.
+          await storageSet({ activeTimers: reconciled });
         }
         // Always rebuild rules to reflect current state
         await rebuildBlockingRules();
@@ -432,6 +499,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         await blockAll();
         sendResponse({ ok: true });
         break;
+
+      case 'QUESTLIFE_NOTIFY': {
+        // Generic notification passthrough — the site can ask the extension
+        // to show a native OS notification (e.g. level up, achievement).
+        const { title, message: body, id, icon } = message.data || {};
+        if (title && body) {
+          chrome.notifications.create(id || `ql_${Date.now()}`, {
+            type:     'basic',
+            iconUrl:  icon || 'icons/icon128.png',
+            title:    String(title),
+            message:  String(body),
+            priority: 1,
+          });
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+
+      case 'QUESTLIFE_SET_REMINDERS': {
+        // Save user reminder settings and (re-)schedule the daily alarm.
+        const settings = message.data || {};
+        await storageSet({ reminderSettings: settings });
+        await scheduleDailyReminder(settings);
+        sendResponse({ ok: true });
+        break;
+      }
 
       // ── Queries from popup ──
 
@@ -508,6 +601,9 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name === 'overtime_check') {
     await checkOvertime();
   }
+  if (alarm.name === 'daily_reminder') {
+    await fireDailyReminder();
+  }
 });
 
 // ──────────────────────────────────────────
@@ -524,6 +620,12 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   // Set up recurring alarm for overtime checks (every 1 minute)
   chrome.alarms.create('overtime_check', { periodInMinutes: 1 });
+
+  // Re-arm the daily reminder if user settings already exist
+  const settings = await storageGet('reminderSettings', null);
+  if (settings && settings.enabled) {
+    await scheduleDailyReminder(settings);
+  }
 });
 
 /** Re-apply blocking rules when the service worker restarts */
@@ -533,6 +635,15 @@ chrome.runtime.onStartup.addListener(async () => {
   const existing = await new Promise(resolve => chrome.alarms.get('overtime_check', resolve));
   if (!existing) {
     chrome.alarms.create('overtime_check', { periodInMinutes: 1 });
+  }
+  // Recreate the daily reminder alarm if the user had one configured
+  const reminderAlarm = await new Promise(resolve =>
+    chrome.alarms.get('daily_reminder', resolve));
+  if (!reminderAlarm) {
+    const settings = await storageGet('reminderSettings', null);
+    if (settings && settings.enabled) {
+      await scheduleDailyReminder(settings);
+    }
   }
   // Recreate alarms for running timers that may have been lost
   const activeTimers = await storageGet('activeTimers', []);

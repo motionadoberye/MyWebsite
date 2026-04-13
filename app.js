@@ -128,6 +128,26 @@ let state = {
     count:    0,    // number of credit purchases made today
     lastDate: null, // 'YYYY-MM-DD' of last credit use (used to detect new day)
   },
+  // ── Achievements ──
+  achievements: {
+    unlocked:      [],  // array of achievement ids
+    unlockedDates: {},  // { [id]: 'YYYY-MM-DD' } date of unlock
+  },
+  // ── Pomodoro / Focus ──
+  pomodoroStats: {
+    completedSessions: 0,   // total work sessions finished (25 min default)
+    totalFocusMinutes: 0,   // cumulative focused minutes earned
+    currentStreakDate: null,// 'YYYY-MM-DD' of last pomodoro completion day
+    lastSessionAt:     null,// ISO timestamp of last pomodoro completion
+  },
+  // ── Notifications / Reminders ──
+  // Master on/off switch for native OS notifications via extension
+  notificationsEnabled: true,
+  reminderSettings: {
+    enabled: false,         // true = daily reminder active
+    time:    '20:00',       // HH:MM (24-hour)
+    message: '',            // optional override message (empty = default)
+  },
 };
 
 // ==========================================
@@ -155,6 +175,10 @@ function saveState() {
   localStorage.setItem('qm_blockedSites',    JSON.stringify(state.blockedSites));
   localStorage.setItem('qm_dailyDiscountData', JSON.stringify(state.dailyDiscountData));
   localStorage.setItem('qm_creditData',      JSON.stringify(state.creditData));
+  localStorage.setItem('qm_achievements',    JSON.stringify(state.achievements));
+  localStorage.setItem('qm_pomodoroStats',   JSON.stringify(state.pomodoroStats));
+  localStorage.setItem('qm_notificationsEnabled', JSON.stringify(state.notificationsEnabled));
+  localStorage.setItem('qm_reminderSettings', JSON.stringify(state.reminderSettings));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -208,6 +232,26 @@ function loadState() {
   // Load daily credit limit data (backward-compatible)
   const savedCreditData = parse('qm_creditData', null);
   if (savedCreditData) state.creditData = { ...state.creditData, ...savedCreditData };
+
+  // Load achievements (backward-compatible — may be absent)
+  const savedAchievements = parse('qm_achievements', null);
+  if (savedAchievements) {
+    state.achievements = {
+      unlocked:      Array.isArray(savedAchievements.unlocked) ? savedAchievements.unlocked : [],
+      unlockedDates: savedAchievements.unlockedDates || {},
+    };
+  }
+
+  // Load pomodoro stats (backward-compatible)
+  const savedPomodoro = parse('qm_pomodoroStats', null);
+  if (savedPomodoro) state.pomodoroStats = { ...state.pomodoroStats, ...savedPomodoro };
+
+  // Load notification + reminder settings (backward-compatible)
+  const savedNotifEnabled = parse('qm_notificationsEnabled', null);
+  if (savedNotifEnabled !== null) state.notificationsEnabled = !!savedNotifEnabled;
+
+  const savedReminders = parse('qm_reminderSettings', null);
+  if (savedReminders) state.reminderSettings = { ...state.reminderSettings, ...savedReminders };
 }
 
 // ==========================================
@@ -371,15 +415,7 @@ function applyTaskPenalty(task, showNotification = true) {
     state.userStats.coins -= penalty.coins;
     state.timerStats.penaltyCoinsLost += penalty.coins;
 
-    if (previousCoins >= 0 && state.userStats.coins < 0) {
-      state.debtStats.timesWentNegative++;
-    }
-    if (state.userStats.coins < 0) {
-      const debtAbs = Math.abs(state.userStats.coins);
-      if (debtAbs > state.debtStats.biggestDebt) {
-        state.debtStats.biggestDebt = debtAbs;
-      }
-    }
+    trackDebtIncurred(previousCoins);
     if (showNotification) {
       setTimeout(() => showToast(`💸 Штраф за просрочку: -${penalty.coins} 🪙  "${escapeHtml(task.title)}"`, 'error'), 200);
     }
@@ -639,6 +675,8 @@ function completeTask(taskId) {
       showToast(`🔓 ${task.customRewardSite} разблокирован на ${task.customRewardTimerMinutes} минут!`, 'success');
     }, task.customReward ? 1200 : 600);
   }
+
+  checkAchievements();
 }
 
 /** Delete a task (active or completed) */
@@ -798,16 +836,7 @@ function buyReward(rewardId) {
 
   state.userStats.coins -= effectivePrice;
 
-  // Track debt statistics
-  if (previousCoins >= 0 && state.userStats.coins < 0) {
-    state.debtStats.timesWentNegative++;
-  }
-  if (state.userStats.coins < 0) {
-    const debtAbs = Math.abs(state.userStats.coins);
-    if (debtAbs > state.debtStats.biggestDebt) {
-      state.debtStats.biggestDebt = debtAbs;
-    }
-  }
+  trackDebtIncurred(previousCoins);
 
   const purchase = {
     ...reward,
@@ -838,6 +867,8 @@ function buyReward(rewardId) {
   } else {
     showToast(`Bought "${escapeHtml(reward.title)}" ${reward.emoji} for ${effectivePrice} 🪙`, 'success');
   }
+
+  checkAchievements();
 }
 
 // ==========================================
@@ -1178,8 +1209,271 @@ function renderImpact() {
   if (dreamsXpEl)       dreamsXpEl.textContent       = state.dreamStats.xpFromDreams;
 
   renderActivityChart();
+  renderYearlyHeatmap();
+  renderAchievements();
   renderCategoryBreakdown();
   renderDifficultyBreakdown();
+}
+
+/**
+ * Render a 53-week GitHub-style contribution heatmap of the last year.
+ * Each cell represents one day; color intensity scales with completedCount.
+ * The grid is ordered column-by-column starting from 52 weeks ago, with
+ * Monday at the top so it aligns with the existing day labels.
+ */
+function renderYearlyHeatmap() {
+  const grid     = document.getElementById('heatmap-grid');
+  const monthsEl = document.getElementById('heatmap-months');
+  const totalEl  = document.getElementById('heatmap-total');
+  if (!grid) return;
+
+  // Number of cells = 53 full weeks (371 days) — ensures we always show
+  // at least a full year of activity regardless of the day-of-week today.
+  const TOTAL_WEEKS = 53;
+  const now = new Date();
+  // Normalise "today" to midnight local time
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Day of week with Monday as 0 (JS: Sunday=0 → convert)
+  const todayDow = (today.getDay() + 6) % 7;
+  // The top-left cell of the grid is the Monday (TOTAL_WEEKS-1)*7 + todayDow days ago
+  const startOffsetDays = (TOTAL_WEEKS - 1) * 7 + todayDow;
+  const start = new Date(today);
+  start.setDate(start.getDate() - startOffsetDays);
+
+  // Build grid as 53 weeks × 7 days, column-major (CSS grid-auto-flow: column)
+  const cells = [];
+  const monthLabels = [];  // { weekIndex, label } collected while iterating
+  let total = 0;
+  let lastMonthLabelWeek = -99;
+
+  for (let w = 0; w < TOTAL_WEEKS; w++) {
+    for (let d = 0; d < 7; d++) {
+      const dayDate = new Date(start);
+      dayDate.setDate(start.getDate() + w * 7 + d);
+
+      // Cells after today are blank (future days)
+      const isFuture = dayDate > today;
+      const y  = dayDate.getFullYear();
+      const m  = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(dayDate.getDate()).padStart(2, '0');
+      const key = `${y}-${m}-${dd}`;
+      const count = isFuture ? 0 : (state.activityLog[key] || 0);
+      if (!isFuture) total += count;
+
+      const level = heatmapLevel(count);
+      const isToday = dayDate.getTime() === today.getTime();
+      const title = isFuture
+        ? ''
+        : `${key} — ${count} task${count !== 1 ? 's' : ''}`;
+
+      cells.push(
+        `<div class="heatmap-cell heatmap-l${level}${isFuture ? ' heatmap-empty' : ''}${isToday ? ' heatmap-today' : ''}" ${title ? `title="${title}"` : ''}></div>`
+      );
+
+      // First day of a month on the top row (d === 0) → add month label
+      if (d === 0 && dayDate.getDate() <= 7 && w - lastMonthLabelWeek >= 3) {
+        monthLabels.push({
+          week:  w,
+          label: dayDate.toLocaleDateString('en-US', { month: 'short' }),
+        });
+        lastMonthLabelWeek = w;
+      }
+    }
+  }
+
+  grid.style.gridTemplateColumns = `repeat(${TOTAL_WEEKS}, var(--heatmap-cell))`;
+  grid.innerHTML = cells.join('');
+
+  if (monthsEl) {
+    // Position each month label at its week column using grid-column-start
+    monthsEl.style.gridTemplateColumns = `repeat(${TOTAL_WEEKS}, var(--heatmap-cell))`;
+    monthsEl.innerHTML = monthLabels.map(ml =>
+      `<span style="grid-column: ${ml.week + 1} / span 3;">${ml.label}</span>`
+    ).join('');
+  }
+
+  if (totalEl) {
+    totalEl.textContent = `${total} ${total === 1 ? 'задача' : 'задач'} за год`;
+  }
+}
+
+/** Map a task count to one of 5 intensity levels (0 = empty) */
+function heatmapLevel(count) {
+  if (count <= 0) return 0;
+  if (count <= 2) return 1;
+  if (count <= 5) return 2;
+  if (count <= 9) return 3;
+  return 4;
+}
+
+// ==========================================
+// Achievements System
+// ==========================================
+
+/**
+ * Achievement definitions.
+ * Each has an id, emoji, title, description, category and a check(state)
+ * function that returns true when the achievement should be unlocked.
+ * Categories drive grouping in the UI. `tier` is purely visual.
+ */
+const ACHIEVEMENTS = [
+  // ── Quests ──
+  { id: 'first_quest', emoji: '⚔️',  title: 'Первый квест',     desc: 'Выполни первую задачу',              category: 'quests',  tier: 'bronze', check: s => s.completedTasks.length >= 1 },
+  { id: 'quests_10',   emoji: '🗡️',  title: 'Десятка',          desc: 'Выполни 10 задач',                   category: 'quests',  tier: 'bronze', check: s => s.completedTasks.length >= 10 },
+  { id: 'quests_50',   emoji: '⚡',   title: 'Полтинник',        desc: 'Выполни 50 задач',                   category: 'quests',  tier: 'silver', check: s => s.completedTasks.length >= 50 },
+  { id: 'quests_100',  emoji: '💯',  title: 'Сотня',            desc: 'Выполни 100 задач',                  category: 'quests',  tier: 'silver', check: s => s.completedTasks.length >= 100 },
+  { id: 'quests_500',  emoji: '🏆',  title: 'Легенда',          desc: 'Выполни 500 задач',                  category: 'quests',  tier: 'gold',   check: s => s.completedTasks.length >= 500 },
+  { id: 'quests_1000', emoji: '👑',  title: 'Мифический',       desc: 'Выполни 1000 задач',                 category: 'quests',  tier: 'gold',   check: s => s.completedTasks.length >= 1000 },
+  { id: 'epic_5',      emoji: '🔴',  title: 'Эпический',        desc: 'Выполни 5 epic задач',               category: 'quests',  tier: 'silver', check: s => s.completedTasks.filter(t => t.difficulty === 'epic').length >= 5 },
+  { id: 'hard_25',     emoji: '🟠',  title: 'Железный',         desc: 'Выполни 25 hard задач',              category: 'quests',  tier: 'silver', check: s => s.completedTasks.filter(t => t.difficulty === 'hard').length >= 25 },
+
+  // ── Levels ──
+  { id: 'level_5',     emoji: '🎯',  title: 'Новичок',          desc: 'Достигни 5 уровня',                  category: 'levels',  tier: 'bronze', check: s => s.userStats.level >= 5 },
+  { id: 'level_10',    emoji: '📈',  title: 'Ученик',           desc: 'Достигни 10 уровня',                 category: 'levels',  tier: 'bronze', check: s => s.userStats.level >= 10 },
+  { id: 'level_25',    emoji: '🥇',  title: 'Мастер',           desc: 'Достигни 25 уровня',                 category: 'levels',  tier: 'silver', check: s => s.userStats.level >= 25 },
+  { id: 'level_50',    emoji: '💎',  title: 'Ветеран',          desc: 'Достигни 50 уровня',                 category: 'levels',  tier: 'gold',   check: s => s.userStats.level >= 50 },
+  { id: 'level_100',   emoji: '🌟',  title: 'Легендарный',      desc: 'Достигни 100 уровня',                category: 'levels',  tier: 'gold',   check: s => s.userStats.level >= 100 },
+
+  // ── Streaks ──
+  { id: 'streak_3',    emoji: '🔥',  title: 'Разогрев',         desc: 'Стрик 3 дня',                        category: 'streaks', tier: 'bronze', check: s => s.userStats.bestStreak >= 3 },
+  { id: 'streak_7',    emoji: '🔥',  title: 'Неделя',           desc: 'Стрик 7 дней',                       category: 'streaks', tier: 'silver', check: s => s.userStats.bestStreak >= 7 },
+  { id: 'streak_30',   emoji: '🚀',  title: 'Месяц',            desc: 'Стрик 30 дней',                      category: 'streaks', tier: 'gold',   check: s => s.userStats.bestStreak >= 30 },
+  { id: 'streak_100',  emoji: '⚡',   title: 'Сто дней',         desc: 'Стрик 100 дней',                     category: 'streaks', tier: 'gold',   check: s => s.userStats.bestStreak >= 100 },
+
+  // ── Integrity ──
+  { id: 'integrity_7',  emoji: '💪', title: 'Честный',          desc: 'Integrity-стрик 7 дней',             category: 'integrity', tier: 'silver', check: s => s.integrityData.bestStreak >= 7 },
+  { id: 'integrity_30', emoji: '🧘', title: 'Принципиальный',   desc: 'Integrity-стрик 30 дней',            category: 'integrity', tier: 'gold',   check: s => s.integrityData.bestStreak >= 30 },
+
+  // ── Dreams ──
+  { id: 'first_dream',  emoji: '🌟', title: 'Мечтатель',        desc: 'Достигни свою первую мечту',         category: 'dreams',  tier: 'bronze', check: s => s.dreamStats.achieved >= 1 },
+  { id: 'dreams_5',     emoji: '✨', title: 'Визионер',         desc: 'Достигни 5 мечт',                    category: 'dreams',  tier: 'gold',   check: s => s.dreamStats.achieved >= 5 },
+
+  // ── Rewards & Economy ──
+  { id: 'first_purchase', emoji: '🛒', title: 'Шопоголик',      desc: 'Купи первую награду',                category: 'economy', tier: 'bronze', check: s => s.purchasedRewards.length >= 1 },
+  { id: 'purchases_20',   emoji: '💸', title: 'Транжира',       desc: 'Сделай 20 покупок',                  category: 'economy', tier: 'silver', check: s => s.purchasedRewards.length >= 20 },
+  { id: 'coins_1000',     emoji: '💰', title: 'Богач',          desc: 'Заработай 1000 монет (всего)',       category: 'economy', tier: 'silver', check: s => s.userStats.totalCoinsEarned >= 1000 },
+  { id: 'coins_10000',    emoji: '🏦', title: 'Мультимиллионер', desc: 'Заработай 10 000 монет (всего)',    category: 'economy', tier: 'gold',   check: s => s.userStats.totalCoinsEarned >= 10000 },
+  { id: 'debt_king',      emoji: '🔻', title: 'Долговая яма',   desc: 'Впервые уйди в минус',               category: 'economy', tier: 'bronze', check: s => s.debtStats.timesWentNegative >= 1 },
+
+  // ── Daily ──
+  { id: 'daily_streak_7', emoji: '📅', title: 'Дисциплина',     desc: 'Daily-стрик 7 дней',                 category: 'daily',   tier: 'silver', check: s => s.dailyStats.dailyBestStreak >= 7 },
+
+  // ── Focus ──
+  { id: 'focus_1',        emoji: '🎯', title: 'Первый фокус',   desc: 'Заверши свой первый pomodoro',       category: 'focus',   tier: 'bronze', check: s => (s.pomodoroStats && s.pomodoroStats.completedSessions >= 1) },
+  { id: 'focus_10',       emoji: '🧠', title: 'Сфокусирован',   desc: 'Заверши 10 pomodoro',                category: 'focus',   tier: 'silver', check: s => (s.pomodoroStats && s.pomodoroStats.completedSessions >= 10) },
+  { id: 'focus_50',       emoji: '🧘', title: 'Дзен',           desc: 'Заверши 50 pomodoro',                category: 'focus',   tier: 'gold',   check: s => (s.pomodoroStats && s.pomodoroStats.completedSessions >= 50) },
+];
+
+/** Short human-readable label for each achievement category */
+const ACHIEVEMENT_CATEGORY_LABELS = {
+  quests:    '⚔️ Квесты',
+  levels:    '📈 Уровни',
+  streaks:   '🔥 Стрики',
+  integrity: '💪 Честность',
+  dreams:    '🌟 Мечты',
+  economy:   '💰 Экономика',
+  daily:     '📅 Ежедневные',
+  focus:     '🎯 Фокус',
+};
+
+/**
+ * Scan all achievements and unlock any whose check function now returns true.
+ * Returns the list of newly-unlocked achievement objects.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.silent=false] - Skip celebratory toasts. Used for the
+ *   retroactive first-load scan so existing players don't get flooded.
+ */
+function checkAchievements(options = {}) {
+  const { silent = false } = options;
+  const unlocked = new Set(state.achievements.unlocked);
+  const newly    = [];
+  for (const ach of ACHIEVEMENTS) {
+    if (unlocked.has(ach.id)) continue;
+    try {
+      if (ach.check(state)) {
+        unlocked.add(ach.id);
+        state.achievements.unlockedDates[ach.id] = todayStr();
+        newly.push(ach);
+      }
+    } catch (err) {
+      console.warn('[Achievements] check failed for', ach.id, err);
+    }
+  }
+  if (newly.length) {
+    state.achievements.unlocked = Array.from(unlocked);
+    saveState();
+    if (!silent) {
+      newly.forEach((ach, i) => {
+        // Stagger toasts so multiple unlocks don't overlap
+        setTimeout(() => {
+          showToast(`🏅 Ачивка: ${ach.emoji} ${ach.title}`, 'success');
+        }, 250 + i * 800);
+      });
+      // Native notification (one per unlock — the extension decides
+      // whether to actually show it, e.g. skipped when user is active).
+      newly.forEach(ach => {
+        notifyViaExtension({
+          title:   `🏅 Ачивка: ${ach.emoji} ${ach.title}`,
+          message: ach.desc || 'Новое достижение разблокировано!',
+          id:      `ach_${ach.id}`,
+        });
+      });
+    }
+    // Re-render the achievements grid if Impact is currently visible
+    const impactVisible = document.getElementById('section-impact')?.classList.contains('active');
+    if (impactVisible) renderAchievements();
+  }
+  return newly;
+}
+
+/** Render the achievements grid in the Impact dashboard */
+function renderAchievements() {
+  const container = document.getElementById('achievements-grid');
+  const summary   = document.getElementById('achievements-summary');
+  if (!container) return;
+
+  const unlockedSet = new Set(state.achievements.unlocked);
+  const total       = ACHIEVEMENTS.length;
+  const unlockedCnt = ACHIEVEMENTS.filter(a => unlockedSet.has(a.id)).length;
+
+  if (summary) {
+    const pct = Math.round((unlockedCnt / total) * 100);
+    summary.textContent = `${unlockedCnt} / ${total} разблокировано (${pct}%)`;
+  }
+
+  // Group achievements by category
+  const groups = {};
+  for (const ach of ACHIEVEMENTS) {
+    if (!groups[ach.category]) groups[ach.category] = [];
+    groups[ach.category].push(ach);
+  }
+
+  const html = Object.keys(ACHIEVEMENT_CATEGORY_LABELS)
+    .filter(cat => groups[cat])
+    .map(cat => {
+      const items = groups[cat].map(ach => {
+        const isUnlocked = unlockedSet.has(ach.id);
+        const date       = state.achievements.unlockedDates[ach.id] || '';
+        const tierClass  = `ach-tier-${ach.tier || 'bronze'}`;
+        return `
+          <div class="achievement ${isUnlocked ? 'unlocked' : 'locked'} ${tierClass}"
+               title="${escapeHtml(ach.title)} — ${escapeHtml(ach.desc)}${isUnlocked && date ? ` · ${date}` : ''}">
+            <div class="achievement-emoji">${isUnlocked ? ach.emoji : '🔒'}</div>
+            <div class="achievement-title">${escapeHtml(ach.title)}</div>
+            <div class="achievement-desc">${escapeHtml(ach.desc)}</div>
+            ${isUnlocked && date ? `<div class="achievement-date">${date}</div>` : ''}
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="achievement-category">
+          <div class="achievement-category-title">${ACHIEVEMENT_CATEGORY_LABELS[cat]}</div>
+          <div class="achievement-list">${items}</div>
+        </div>`;
+    }).join('');
+
+  container.innerHTML = html;
 }
 
 /** Render the 7-day activity bar chart */
@@ -1267,6 +1561,292 @@ function renderDifficultyBreakdown() {
 }
 
 // ==========================================
+// Pomodoro / Focus Timer
+// ==========================================
+
+/**
+ * Runtime state for the Pomodoro timer. Not persisted — on reload the
+ * running session is lost, which is the correct UX for a focus session
+ * (you shouldn't be reloading during focus anyway).
+ */
+const pomodoroState = {
+  running:           false,
+  phase:             'work',  // 'work' | 'short' | 'long'
+  endTime:           0,
+  paused:            false,
+  pausedRemainingMs: 0,
+  workMin:           25,
+  shortMin:          5,
+  longMin:           15,
+  sessionsInCycle:   0,       // completed work sessions since last long break
+  blockSites:        true,
+  tickHandle:        null,
+};
+
+const POMODORO_XP_PER_SESSION    = 5;
+const POMODORO_COINS_PER_SESSION = 3;
+
+function pomodoroPhaseLabel(phase) {
+  return phase === 'work'  ? '🎯 Работа'
+       : phase === 'short' ? '☕ Короткий перерыв'
+       : phase === 'long'  ? '🌴 Длинный перерыв'
+       : 'Готов к фокусу';
+}
+
+function pomodoroPhaseMinutes(phase) {
+  return phase === 'work'  ? pomodoroState.workMin
+       : phase === 'short' ? pomodoroState.shortMin
+       : pomodoroState.longMin;
+}
+
+/** Format ms as MM:SS (zero-padded) */
+function formatMmSs(ms) {
+  if (ms < 0) ms = 0;
+  const totalSecs = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function pomodoroStartPhase(phase) {
+  pomodoroState.phase   = phase;
+  pomodoroState.endTime = Date.now() + pomodoroPhaseMinutes(phase) * 60 * 1000;
+  pomodoroState.paused  = false;
+  pomodoroState.pausedRemainingMs = 0;
+  pomodoroState.running = true;
+
+  // When entering a work phase with "block sites" enabled, stop any active
+  // site-unlock timers so the extension re-blocks everything.
+  if (phase === 'work' && pomodoroState.blockSites) {
+    const toStop = state.activeTimers.filter(t => t.linkedSite && !t.finished).map(t => t.id);
+    if (toStop.length > 0) {
+      toStop.forEach(id => stopTimer(id));
+      showToast('🔒 Разблокировки сброшены — фокус-режим', 'info');
+    }
+  }
+
+  pomodoroStartTick();
+  renderPomodoro();
+  showToast(`${pomodoroPhaseLabel(phase)} начата`, 'info');
+}
+
+function pomodoroPause() {
+  if (!pomodoroState.running || pomodoroState.paused) return;
+  pomodoroState.pausedRemainingMs = Math.max(0, pomodoroState.endTime - Date.now());
+  pomodoroState.paused = true;
+  renderPomodoro();
+}
+
+function pomodoroResume() {
+  if (!pomodoroState.running || !pomodoroState.paused) return;
+  pomodoroState.endTime            = Date.now() + pomodoroState.pausedRemainingMs;
+  pomodoroState.pausedRemainingMs  = 0;
+  pomodoroState.paused             = false;
+  renderPomodoro();
+}
+
+function pomodoroSkip() {
+  if (!pomodoroState.running) return;
+  pomodoroAdvance({ completed: false });
+}
+
+function pomodoroStop() {
+  pomodoroState.running = false;
+  pomodoroState.paused  = false;
+  pomodoroState.phase   = 'work';
+  if (pomodoroState.tickHandle) {
+    clearInterval(pomodoroState.tickHandle);
+    pomodoroState.tickHandle = null;
+  }
+  renderPomodoro();
+  showToast('⏹ Фокус-сессия остановлена', 'info');
+}
+
+/**
+ * Advance to the next phase. If the current work phase was fully completed,
+ * award XP/coins and update stats; otherwise (skipped) just move on.
+ */
+function pomodoroAdvance({ completed }) {
+  const wasWork = pomodoroState.phase === 'work';
+
+  if (wasWork && completed) {
+    // Award XP and coins
+    const previousCoins = state.userStats.coins;
+    addXP(POMODORO_XP_PER_SESSION);
+    state.userStats.coins            += POMODORO_COINS_PER_SESSION;
+    state.userStats.totalCoinsEarned += POMODORO_COINS_PER_SESSION;
+    checkDebtPayoff(previousCoins);
+
+    // Update pomodoro stats
+    state.pomodoroStats.completedSessions += 1;
+    state.pomodoroStats.totalFocusMinutes += pomodoroState.workMin;
+    state.pomodoroStats.lastSessionAt      = new Date().toISOString();
+    state.pomodoroStats.currentStreakDate  = todayStr();
+
+    // Count as activity so the heatmap reflects focus work
+    const today = todayStr();
+    state.activityLog[today] = (state.activityLog[today] || 0) + 1;
+
+    pomodoroState.sessionsInCycle += 1;
+    saveState();
+    updateHeader();
+    // Refresh the Impact dashboard if it's currently visible
+    if (document.getElementById('section-impact')?.classList.contains('active')) {
+      renderImpact();
+    }
+    showToast(
+      `🎯 Сессия завершена! +${POMODORO_XP_PER_SESSION} XP +${POMODORO_COINS_PER_SESSION} 🪙`,
+      'success'
+    );
+    checkAchievements();
+  }
+
+  // Pick next phase
+  let next;
+  if (wasWork) {
+    // Long break after every 4th completed work session
+    next = (pomodoroState.sessionsInCycle % 4 === 0 && pomodoroState.sessionsInCycle > 0)
+      ? 'long'
+      : 'short';
+  } else {
+    next = 'work';
+  }
+  pomodoroStartPhase(next);
+}
+
+function pomodoroStartTick() {
+  if (pomodoroState.tickHandle) return;
+  pomodoroState.tickHandle = setInterval(() => {
+    if (!pomodoroState.running) return;
+    if (pomodoroState.paused) { renderPomodoro(); return; }
+    const remaining = pomodoroState.endTime - Date.now();
+    if (remaining <= 0) {
+      pomodoroAdvance({ completed: true });
+    } else {
+      renderPomodoro();
+    }
+  }, 500);
+}
+
+function renderPomodoro() {
+  const phaseBadge = document.getElementById('focus-phase-badge');
+  const timerEl    = document.getElementById('focus-timer-display');
+  const sessionEl  = document.getElementById('focus-session-current');
+  const settingsEl = document.getElementById('focus-settings');
+  if (!phaseBadge || !timerEl) return;
+
+  // Phase badge
+  phaseBadge.textContent = pomodoroState.running
+    ? pomodoroPhaseLabel(pomodoroState.phase)
+    : 'Готов к фокусу';
+  phaseBadge.className = 'focus-phase';
+  if (pomodoroState.running) {
+    phaseBadge.classList.add(`focus-phase-${pomodoroState.phase}`);
+    if (pomodoroState.paused) phaseBadge.classList.add('focus-phase-paused');
+  }
+
+  // Big time display
+  let remaining;
+  if (!pomodoroState.running) {
+    remaining = pomodoroState.workMin * 60 * 1000;
+  } else if (pomodoroState.paused) {
+    remaining = pomodoroState.pausedRemainingMs;
+  } else {
+    remaining = Math.max(0, pomodoroState.endTime - Date.now());
+  }
+  timerEl.textContent = formatMmSs(remaining);
+
+  if (sessionEl) {
+    const inCycle = pomodoroState.sessionsInCycle % 4;
+    sessionEl.textContent = String(inCycle);
+  }
+
+  // Button visibility
+  const show = (id, visible) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible ? '' : 'none';
+  };
+  show('focus-start-btn',  !pomodoroState.running);
+  show('focus-pause-btn',   pomodoroState.running && !pomodoroState.paused);
+  show('focus-resume-btn',  pomodoroState.running &&  pomodoroState.paused);
+  show('focus-skip-btn',    pomodoroState.running);
+  show('focus-stop-btn',    pomodoroState.running);
+
+  // Hide settings while running
+  if (settingsEl) settingsEl.style.display = pomodoroState.running ? 'none' : '';
+
+  // Stats
+  const totalEl   = document.getElementById('focus-stat-total');
+  const minutesEl = document.getElementById('focus-stat-minutes');
+  const todayEl   = document.getElementById('focus-stat-today');
+  if (totalEl)   totalEl.textContent   = state.pomodoroStats.completedSessions;
+  if (minutesEl) minutesEl.textContent = state.pomodoroStats.totalFocusMinutes;
+  if (todayEl)   todayEl.textContent   = state.pomodoroStats.currentStreakDate === todayStr() ? '✓' : '—';
+}
+
+function initPomodoroModal() {
+  const openBtn   = document.getElementById('focus-btn');
+  const closeBtn  = document.getElementById('close-focus-modal');
+  const modal     = document.getElementById('focus-modal');
+  const startBtn  = document.getElementById('focus-start-btn');
+  const pauseBtn  = document.getElementById('focus-pause-btn');
+  const resumeBtn = document.getElementById('focus-resume-btn');
+  const skipBtn   = document.getElementById('focus-skip-btn');
+  const stopBtn   = document.getElementById('focus-stop-btn');
+  if (!openBtn || !modal) return;
+
+  const workInput  = document.getElementById('focus-work-min');
+  const shortInput = document.getElementById('focus-short-min');
+  const longInput  = document.getElementById('focus-long-min');
+  const blockCheck = document.getElementById('focus-block-sites');
+
+  openBtn.addEventListener('click', () => {
+    workInput.value    = pomodoroState.workMin;
+    shortInput.value   = pomodoroState.shortMin;
+    longInput.value    = pomodoroState.longMin;
+    blockCheck.checked = pomodoroState.blockSites;
+    renderPomodoro();
+    openModal('focus-modal');
+  });
+  closeBtn.addEventListener('click', () => closeModal('focus-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('focus-modal');
+  });
+
+  const readSettings = () => {
+    pomodoroState.workMin    = Math.max(1, parseInt(workInput.value,  10) || 25);
+    pomodoroState.shortMin   = Math.max(1, parseInt(shortInput.value, 10) || 5);
+    pomodoroState.longMin    = Math.max(1, parseInt(longInput.value,  10) || 15);
+    pomodoroState.blockSites = blockCheck.checked;
+  };
+
+  [workInput, shortInput, longInput].forEach(input => {
+    input.addEventListener('change', readSettings);
+  });
+  blockCheck.addEventListener('change', readSettings);
+
+  // Presets inside the focus modal
+  document.querySelectorAll('.focus-presets .preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      workInput.value  = btn.dataset.work;
+      shortInput.value = btn.dataset.short;
+      longInput.value  = btn.dataset.long;
+      readSettings();
+      renderPomodoro();
+    });
+  });
+
+  startBtn.addEventListener('click', () => {
+    readSettings();
+    pomodoroStartPhase('work');
+  });
+  pauseBtn.addEventListener('click',  pomodoroPause);
+  resumeBtn.addEventListener('click', pomodoroResume);
+  skipBtn.addEventListener('click',   pomodoroSkip);
+  stopBtn.addEventListener('click',   pomodoroStop);
+}
+
+// ==========================================
 // Toast Notifications
 // ==========================================
 
@@ -1300,6 +1880,13 @@ function showLevelUp(level) {
   // Auto-dismiss after 2.5 s
   setTimeout(() => overlay.classList.remove('show'), 2500);
   showToast(`🎉 Level Up! You are now level ${level}!`, 'success');
+  // Also ask the extension to fire a native OS notification so the user
+  // sees it even with the tab in the background.
+  notifyViaExtension({
+    title: `🎉 Level ${level}!`,
+    message: `Ты достиг нового уровня. Продолжай в том же духе!`,
+    id: `levelup_${level}_${Date.now()}`,
+  });
 }
 
 // ==========================================
@@ -1720,23 +2307,35 @@ function submitReward() {
 // Navigation
 // ==========================================
 
+/**
+ * Switch to a tab by its data-tab identifier. Triggers any tab-specific
+ * re-renders needed to keep the view up to date.
+ */
+function switchTab(target) {
+  const tab = document.querySelector(`.nav-tab[data-tab="${target}"]`);
+  if (!tab) return;
+
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+
+  tab.classList.add('active');
+  document.getElementById(`section-${target}`).classList.add('active');
+
+  // Refresh data each time the tab is opened
+  if (target === 'impact') renderImpact();
+  if (target === 'daily')  { renderDailyTasks(); updateDailyProgress(); }
+  if (target === 'dreams') { renderDreams(); renderAchievedDreams(); updateAchievedDreamsCount(); }
+}
+
+/** Return the data-tab id of the currently active section */
+function currentTab() {
+  const active = document.querySelector('.nav-tab.active');
+  return active ? active.dataset.tab : 'quests';
+}
+
 function initNav() {
   document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-
-      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-
-      tab.classList.add('active');
-      document.getElementById(`section-${target}`).classList.add('active');
-
-      // Refresh Impact data each time the tab is opened
-      if (target === 'impact') renderImpact();
-      // Refresh daily tasks when switching to daily tab
-      if (target === 'daily') { renderDailyTasks(); updateDailyProgress(); }
-      if (target === 'dreams') { renderDreams(); renderAchievedDreams(); updateAchievedDreamsCount(); }
-    });
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
 }
 
@@ -1757,6 +2356,24 @@ function escapeHtml(str) {
 // ==========================================
 // Psychological Mechanics — Shared Helpers
 // ==========================================
+
+/**
+ * Track debt statistics after a coin balance decrease.
+ * Increments `timesWentNegative` when the balance crosses from non-negative
+ * to negative, and updates `biggestDebt` if the new absolute debt is a record.
+ * @param {number} previousCoins - Coin balance before the change
+ */
+function trackDebtIncurred(previousCoins) {
+  if (previousCoins >= 0 && state.userStats.coins < 0) {
+    state.debtStats.timesWentNegative++;
+  }
+  if (state.userStats.coins < 0) {
+    const debtAbs = Math.abs(state.userStats.coins);
+    if (debtAbs > state.debtStats.biggestDebt) {
+      state.debtStats.biggestDebt = debtAbs;
+    }
+  }
+}
 
 /**
  * Check if the user just paid off their debt (balance crossed from negative to non-negative).
@@ -1956,6 +2573,7 @@ function updateIntegrityStreakForNewDay() {
     });
 
     saveState();
+    checkAchievements();
   }
 }
 
@@ -2094,12 +2712,18 @@ function pauseTimer(timerId) {
   }
   saveState();
   renderTimers();
+  // Safety net: push a full sync so the extension reconciles its timer state
+  // against ours even if the targeted message above is lost.
+  if (timer.linkedSite && extensionConnected) {
+    syncExtensionState();
+  }
 }
 
 /** Remove a timer */
 function stopTimer(timerId) {
   const timer = state.activeTimers.find(t => t.id === timerId);
-  if (timer && timer.linkedSite) {
+  const hadLinkedSite = !!(timer && timer.linkedSite);
+  if (hadLinkedSite) {
     extensionSendMessage({ type: 'QUESTLIFE_STOP_TIMER', data: { id: timerId } });
   }
   state.activeTimers = state.activeTimers.filter(t => t.id !== timerId);
@@ -2109,6 +2733,11 @@ function stopTimer(timerId) {
   if (state.activeTimers.length === 0 && timerInterval) {
     clearInterval(timerInterval);
     timerInterval = null;
+  }
+  // Safety net: reconcile with the extension so the removed timer is cleared
+  // even if QUESTLIFE_STOP_TIMER was dropped.
+  if (hadLinkedSite && extensionConnected) {
+    syncExtensionState();
   }
 }
 
@@ -2124,6 +2753,7 @@ function updateTimerDisplays() {
   if (!container) return;
 
   let needsFullRender = false;
+  let anyFinished     = false;
 
   state.activeTimers.forEach(timer => {
     if (timer.paused || timer.finished) return;
@@ -2132,6 +2762,7 @@ function updateTimerDisplays() {
     if (remaining <= 0 && !timer.finished) {
       timer.finished = true;
       needsFullRender = true;
+      anyFinished     = true;
       saveState();
     }
 
@@ -2152,6 +2783,12 @@ function updateTimerDisplays() {
   } else {
     // Keep blocked-site statuses live (e.g. countdown minutes)
     refreshBlockedSiteStatuses();
+  }
+
+  // If a timer finished on this side, push a sync so the extension removes
+  // it and re-blocks the domain without waiting for its own alarm.
+  if (anyFinished && extensionConnected) {
+    syncExtensionState();
   }
 }
 
@@ -2277,6 +2914,7 @@ function completeDailyTask(taskId) {
 
   // Check for all-completed bonus
   checkDailyCompletionBonus();
+  checkAchievements();
 }
 
 /** Remove a daily quest permanently */
@@ -2618,6 +3256,7 @@ function achieveDream(dreamId) {
   updateDebtWarning();
 
   showDreamAchieved(dream, awardedXp, awardedCoins, bonusCoins);
+  checkAchievements();
 }
 
 /** Check and apply expired penalties for dreams with timers */
@@ -2633,13 +3272,7 @@ function checkDreamPenalties() {
           const previousCoins = state.userStats.coins;
           state.userStats.coins -= dream.penalty.coins;
           state.timerStats.penaltyCoinsLost += dream.penalty.coins;
-          if (previousCoins >= 0 && state.userStats.coins < 0) {
-            state.debtStats.timesWentNegative++;
-          }
-          if (state.userStats.coins < 0) {
-            const debtAbs = Math.abs(state.userStats.coins);
-            if (debtAbs > state.debtStats.biggestDebt) state.debtStats.biggestDebt = debtAbs;
-          }
+          trackDebtIncurred(previousCoins);
           // Small delay avoids the toast competing visually with the re-render triggered above
           setTimeout(() => showToast(`💸 Просрочена мечта: -${dream.penalty.coins} 🪙 "${escapeHtml(dream.title)}"`, 'error'), 200);
         }
@@ -3040,6 +3673,208 @@ function initDreamModal() {
 }
 
 /** Initialise the reset-all-progress modal */
+// ==========================================
+// Data Export / Import (Backup & Restore)
+// ==========================================
+
+const EXPORT_VERSION = 1;
+
+/** All localStorage keys that represent persistent Quest Manager state */
+const EXPORTABLE_KEYS = [
+  'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
+  'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats',
+  'qm_activeTimers', 'qm_inflationData', 'qm_integrityData', 'qm_debtStats',
+  'qm_timerStats', 'qm_dreams', 'qm_completedDreams', 'qm_dreamStats',
+  'qm_blockedSites', 'qm_dailyDiscountData', 'qm_creditData',
+  'qm_achievements', 'qm_pomodoroStats',
+  'qm_notificationsEnabled', 'qm_reminderSettings',
+];
+
+/** Build a serialisable export payload from localStorage */
+function buildExportPayload() {
+  saveState();  // ensure everything in memory is flushed first
+  const data = {};
+  for (const key of EXPORTABLE_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (raw == null) continue;
+    try { data[key] = JSON.parse(raw); }
+    catch { /* skip malformed slices */ }
+  }
+  return {
+    app:        'questmanager',
+    version:    EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    data,
+  };
+}
+
+/** Trigger a browser download of the current state as a JSON file */
+function exportData() {
+  try {
+    const payload = buildExportPayload();
+    const json    = JSON.stringify(payload, null, 2);
+    const blob    = new Blob([json], { type: 'application/json' });
+    const url     = URL.createObjectURL(blob);
+    const a       = document.createElement('a');
+    const stamp   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href     = url;
+    a.download = `quest-manager-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Give the browser a tick to start the download before revoking
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('📤 Backup сохранён!', 'success');
+  } catch (err) {
+    console.error('[Export] failed:', err);
+    showToast('❌ Экспорт не удался', 'error');
+  }
+}
+
+/**
+ * Replace all current state with data from a validated import payload.
+ * Only keys in EXPORTABLE_KEYS are touched; anything else in the file is ignored.
+ */
+function applyImportPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Некорректный формат файла');
+  }
+  if (payload.app !== 'questmanager') {
+    throw new Error('Это не файл Quest Manager');
+  }
+  if (!payload.data || typeof payload.data !== 'object') {
+    throw new Error('Нет данных для импорта');
+  }
+  // Wipe any existing slice we're about to overwrite so partial files
+  // don't leave stale values behind.
+  for (const key of EXPORTABLE_KEYS) {
+    if (key in payload.data) {
+      localStorage.setItem(key, JSON.stringify(payload.data[key]));
+    }
+  }
+}
+
+/** Read the user-selected file and apply it after confirmation */
+function handleImportFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let payload;
+    try {
+      payload = JSON.parse(reader.result);
+    } catch {
+      showToast('❌ Файл не является валидным JSON', 'error');
+      return;
+    }
+    const ok = confirm(
+      'Заменить все текущие данные содержимым файла?\n\n' +
+      'Это действие нельзя отменить. Рекомендуется сначала сделать экспорт текущих данных.'
+    );
+    if (!ok) return;
+    try {
+      applyImportPayload(payload);
+      showToast('📥 Backup восстановлен — перезагрузка…', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      console.error('[Import] failed:', err);
+      showToast(`❌ ${err.message || 'Импорт не удался'}`, 'error');
+    }
+  };
+  reader.onerror = () => showToast('❌ Не удалось прочитать файл', 'error');
+  reader.readAsText(file);
+}
+
+function initDataManagement() {
+  const exportBtn = document.getElementById('export-data-btn');
+  const importBtn = document.getElementById('import-data-btn');
+  const fileInput = document.getElementById('import-file-input');
+  if (!exportBtn || !importBtn || !fileInput) return;
+
+  exportBtn.addEventListener('click', exportData);
+  importBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (file) handleImportFile(file);
+    fileInput.value = '';  // allow re-selecting the same file
+  });
+}
+
+// ==========================================
+// Notifications & Reminders Settings
+// ==========================================
+
+/** Initialise the notifications + daily reminder settings card in Impact. */
+function initNotificationsSettings() {
+  const notifEnabled    = document.getElementById('notifications-enabled');
+  const reminderEnabled = document.getElementById('reminder-enabled');
+  const reminderTime    = document.getElementById('reminder-time');
+  const reminderMessage = document.getElementById('reminder-message');
+  const saveBtn         = document.getElementById('save-reminder-btn');
+  const testBtn         = document.getElementById('test-notif-btn');
+  const statusEl        = document.getElementById('reminder-status');
+  if (!notifEnabled || !reminderEnabled || !reminderTime || !saveBtn) return;
+
+  // Populate current values
+  notifEnabled.checked    = state.notificationsEnabled !== false;
+  reminderEnabled.checked = !!state.reminderSettings.enabled;
+  reminderTime.value      = state.reminderSettings.time    || '20:00';
+  reminderMessage.value   = state.reminderSettings.message || '';
+
+  const setStatus = (text, cls = '') => {
+    statusEl.textContent = text;
+    statusEl.className   = 'notif-status' + (cls ? ' ' + cls : '');
+  };
+
+  notifEnabled.addEventListener('change', () => {
+    state.notificationsEnabled = notifEnabled.checked;
+    saveState();
+    setStatus(notifEnabled.checked
+      ? 'Уведомления включены.'
+      : 'Уведомления отключены.', notifEnabled.checked ? 'ok' : 'warning');
+  });
+
+  saveBtn.addEventListener('click', () => {
+    state.reminderSettings = {
+      enabled: reminderEnabled.checked,
+      time:    reminderTime.value || '20:00',
+      message: reminderMessage.value.trim(),
+    };
+    saveState();
+    syncReminderSettings();
+    if (reminderEnabled.checked) {
+      setStatus(`Напоминание сохранено на ${state.reminderSettings.time} каждый день.`, 'ok');
+      showToast('🔔 Напоминание сохранено', 'success');
+    } else {
+      setStatus('Ежедневное напоминание выключено.', 'warning');
+      showToast('🔕 Напоминание выключено', 'info');
+    }
+  });
+
+  testBtn.addEventListener('click', () => {
+    if (!extensionConnected) {
+      setStatus('Расширение не подключено — установите QuestLife extension.', 'warning');
+      return;
+    }
+    if (state.notificationsEnabled === false) {
+      setStatus('Уведомления отключены — сначала включи их.', 'warning');
+      return;
+    }
+    notifyViaExtension({
+      title:   '🔔 Тест уведомления',
+      message: 'Если ты это видишь — всё работает! 🎉',
+      id:      `test_${Date.now()}`,
+    });
+    setStatus('Уведомление отправлено. Проверь системный трей.', 'ok');
+  });
+
+  if (!extensionConnected) {
+    setStatus('Расширение не подключено. Установи его, чтобы получать уведомления.', 'warning');
+  }
+}
+
+// ==========================================
+// Reset Modal
+// ==========================================
+
 function initResetModal() {
   const resetBtn    = document.getElementById('reset-progress-btn');
   const modal       = document.getElementById('reset-modal');
@@ -3062,15 +3897,8 @@ function initResetModal() {
 
   confirmBtn.addEventListener('click', () => {
     if (confirmInput.value.trim().toUpperCase() !== 'RESET') return;
-    // Wipe all localStorage keys and reload
-    const keys = [
-      'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
-      'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats', 'qm_activeTimers',
-      'qm_inflationData', 'qm_integrityData', 'qm_debtStats', 'qm_timerStats',
-      'qm_dreams', 'qm_completedDreams', 'qm_dreamStats', 'qm_blockedSites',
-      'qm_dailyDiscountData', 'qm_creditData',
-    ];
-    keys.forEach(k => localStorage.removeItem(k));
+    // Wipe all persisted Quest Manager data and reload
+    EXPORTABLE_KEYS.forEach(k => localStorage.removeItem(k));
     location.reload();
   });
 
@@ -3096,6 +3924,30 @@ function extensionSendMessage(message) {
   window.postMessage(message, '*');
 }
 
+/**
+ * Ask the extension to show a native OS notification. Silently no-ops
+ * if the extension isn't installed or if the user has disabled
+ * in-site notifications (state.notificationsEnabled === false).
+ */
+function notifyViaExtension({ title, message, id, icon }) {
+  if (state.notificationsEnabled === false) return;
+  if (!extensionConnected) return;
+  if (!title || !message) return;
+  extensionSendMessage({
+    type: 'QUESTLIFE_NOTIFY',
+    data: { title, message, id, icon },
+  });
+}
+
+/** Push current reminder settings to the extension so it can (re)schedule. */
+function syncReminderSettings() {
+  if (!extensionConnected) return;
+  extensionSendMessage({
+    type: 'QUESTLIFE_SET_REMINDERS',
+    data: state.reminderSettings || { enabled: false, time: '20:00' },
+  });
+}
+
 /** Listen for messages relayed back from the extension */
 window.addEventListener('message', event => {
   if (!event.data || typeof event.data !== 'object') return;
@@ -3110,6 +3962,9 @@ window.addEventListener('message', event => {
         updateExtensionStatus(true);
         // Send current state to the extension on first connect
         syncExtensionState();
+        // Also (re)send reminder settings so the extension has an up-to-date
+        // schedule even if the user configured reminders while offline.
+        syncReminderSettings();
       }
       break;
 
@@ -3458,6 +4313,9 @@ function init() {
   initRewardModal();
   initDailyModal();
   initResetModal();
+  initDataManagement();
+  initNotificationsSettings();
+  initPomodoroModal();
   initCheatPenaltyModal();
   initStreakResetModal();
   checkDreamPenalties();
@@ -3483,6 +4341,17 @@ function init() {
     startTimerTick();
   }
 
+  // Retroactively unlock achievements for legacy users with existing progress.
+  // Silent to avoid flooding the screen with dozens of toasts at once.
+  const hasPriorProgress = state.completedTasks.length > 0 || state.userStats.level > 1;
+  const hasNoAchievements = state.achievements.unlocked.length === 0;
+  if (hasPriorProgress && hasNoAchievements) {
+    checkAchievements({ silent: true });
+  } else {
+    // Normal path: only toasts truly new unlocks since last load
+    checkAchievements();
+  }
+
   // Start task timer tick if any active tasks have timers
   if (state.tasks.some(t => t.timerDurationMs && !isTaskOverdue(t, Date.now()))) {
     startTaskTimerTick();
@@ -3493,17 +4362,191 @@ function init() {
     document.getElementById('levelup-overlay').classList.remove('show');
   });
 
-  // Global Escape key closes any open modal
+  initKeyboardShortcuts();
+  initShortcutsHelpModal();
+  initPWA();
+}
+
+// ==========================================
+// PWA — Service Worker & Install Prompt
+// ==========================================
+
+let deferredInstallPrompt = null;
+
+function initPWA() {
+  // Register the service worker (silently no-op on unsupported browsers)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => {
+          // When a new version is available, tell the SW to activate it
+          // immediately on next page load.
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // A newer SW is waiting — schedule takeover on next reload
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          });
+        })
+        .catch(err => console.warn('[PWA] SW registration failed:', err));
+    });
+  }
+
+  // Stash the install prompt so we can trigger it from a button
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.style.display = '';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.style.display = 'none';
+    showToast('📲 Quest Manager установлен!', 'success');
+  });
+
+  const installBtn = document.getElementById('pwa-install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      try {
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') {
+          installBtn.style.display = 'none';
+        }
+      } catch { /* ignore */ }
+      deferredInstallPrompt = null;
+    });
+  }
+}
+
+// ==========================================
+// Keyboard Shortcuts
+// ==========================================
+
+/** Modal ids that Esc should close */
+const ALL_MODAL_IDS = [
+  'task-modal', 'reward-modal', 'daily-modal', 'reset-modal',
+  'cheat-penalty-modal', 'streak-reset-modal', 'dream-modal',
+  'shortcuts-modal', 'focus-modal',
+];
+
+/** True if any modal overlay is currently open */
+function isAnyModalOpen() {
+  return ALL_MODAL_IDS.some(id => {
+    const el = document.getElementById(id);
+    return el && el.classList.contains('open');
+  });
+}
+
+/** Close every open modal overlay */
+function closeAllModals() {
+  ALL_MODAL_IDS.forEach(id => closeModal(id));
+}
+
+/** True if the active element is a text input — we should not steal keys */
+function isEditingText() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
+/**
+ * Open the "create" modal that matches the currently visible tab.
+ * Falls back to the New Quest modal if the tab has no creator button.
+ */
+function triggerContextualNewAction() {
+  const tab = currentTab();
+  const buttonIdByTab = {
+    quests:  'add-task-btn',
+    rewards: 'add-reward-btn',
+    daily:   'add-daily-btn',
+    dreams:  'add-dream-btn',
+  };
+  const btnId = buttonIdByTab[tab] || 'add-task-btn';
+  const btn = document.getElementById(btnId);
+  if (btn) btn.click();
+}
+
+function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
+    // Escape always works — even inside inputs — and closes modals first
     if (e.key === 'Escape') {
-      closeModal('task-modal');
-      closeModal('reward-modal');
-      closeModal('daily-modal');
-      closeModal('reset-modal');
-      closeModal('cheat-penalty-modal');
-      closeModal('streak-reset-modal');
-      closeModal('dream-modal');
+      if (isAnyModalOpen()) {
+        closeAllModals();
+        e.preventDefault();
+      }
+      return;
     }
+
+    // Ignore shortcuts while the user is typing, or when modifier keys
+    // are pressed so we don't hijack browser/OS combos.
+    if (isEditingText()) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // If a modal is open, only Escape is handled (above)
+    if (isAnyModalOpen()) return;
+
+    const key = e.key;
+
+    // Tab navigation: 1–5
+    const tabByDigit = { '1': 'quests', '2': 'rewards', '3': 'impact', '4': 'daily', '5': 'dreams' };
+    if (tabByDigit[key]) {
+      switchTab(tabByDigit[key]);
+      e.preventDefault();
+      return;
+    }
+
+    // Single-letter actions (case-insensitive)
+    switch (key.toLowerCase()) {
+      case 'n':
+        triggerContextualNewAction();
+        e.preventDefault();
+        break;
+      case 'q': switchTab('quests');  e.preventDefault(); break;
+      case 'r': switchTab('rewards'); e.preventDefault(); break;
+      case 'i':
+      case 'd':
+        // Both "I" (Impact) and "D" (Dashboard) open the Impact tab
+        switchTab('impact');
+        e.preventDefault();
+        break;
+      case 'l': switchTab('daily');   e.preventDefault(); break;
+      case 'm': switchTab('dreams');  e.preventDefault(); break;
+      case 'f': {
+        // Focus / Pomodoro — opens if the feature is wired up
+        const focusBtn = document.getElementById('focus-btn');
+        if (focusBtn) { focusBtn.click(); e.preventDefault(); }
+        break;
+      }
+      case '?':
+        openModal('shortcuts-modal');
+        e.preventDefault();
+        break;
+    }
+  });
+}
+
+function initShortcutsHelpModal() {
+  const modal = document.getElementById('shortcuts-modal');
+  if (!modal) return;
+  const closeBtn  = document.getElementById('close-shortcuts-modal');
+  const okBtn     = document.getElementById('ok-shortcuts-btn');
+  const headerBtn = document.getElementById('shortcuts-btn');
+  if (closeBtn)  closeBtn.addEventListener('click',  () => closeModal('shortcuts-modal'));
+  if (okBtn)     okBtn.addEventListener('click',     () => closeModal('shortcuts-modal'));
+  if (headerBtn) headerBtn.addEventListener('click', () => openModal('shortcuts-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('shortcuts-modal');
   });
 }
 
