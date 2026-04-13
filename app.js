@@ -148,6 +148,17 @@ let state = {
     time:    '20:00',       // HH:MM (24-hour)
     message: '',            // optional override message (empty = default)
   },
+  // ── Persistent Pomodoro UI preferences ──
+  // These survive page reloads. Runtime state lives in pomodoroState.
+  pomodoroSettings: {
+    workMin:    25,
+    shortMin:   5,
+    longMin:    15,
+    blockSites: true,
+    rewardSite: null,   // domain auto-unlocked during break phases
+    sound:      null,   // ambient sound preset id ('rain'|'wind'|'brown'|'ocean'|'fire')
+    volume:     0.5,    // 0..1
+  },
 };
 
 // ==========================================
@@ -179,6 +190,7 @@ function saveState() {
   localStorage.setItem('qm_pomodoroStats',   JSON.stringify(state.pomodoroStats));
   localStorage.setItem('qm_notificationsEnabled', JSON.stringify(state.notificationsEnabled));
   localStorage.setItem('qm_reminderSettings', JSON.stringify(state.reminderSettings));
+  localStorage.setItem('qm_pomodoroSettings', JSON.stringify(state.pomodoroSettings));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -252,6 +264,21 @@ function loadState() {
 
   const savedReminders = parse('qm_reminderSettings', null);
   if (savedReminders) state.reminderSettings = { ...state.reminderSettings, ...savedReminders };
+
+  // Load persistent Pomodoro preferences (backward-compatible)
+  const savedPomodoroSettings = parse('qm_pomodoroSettings', null);
+  if (savedPomodoroSettings) {
+    state.pomodoroSettings = { ...state.pomodoroSettings, ...savedPomodoroSettings };
+    // Mirror them into the runtime pomodoroState so the modal opens with the
+    // user's last choices already applied.
+    pomodoroState.workMin    = state.pomodoroSettings.workMin;
+    pomodoroState.shortMin   = state.pomodoroSettings.shortMin;
+    pomodoroState.longMin    = state.pomodoroSettings.longMin;
+    pomodoroState.blockSites = state.pomodoroSettings.blockSites;
+    pomodoroState.rewardSite = state.pomodoroSettings.rewardSite;
+    pomodoroState.sound      = state.pomodoroSettings.sound;
+    pomodoroState.volume     = state.pomodoroSettings.volume;
+  }
 }
 
 // ==========================================
@@ -1580,6 +1607,10 @@ const pomodoroState = {
   longMin:           15,
   sessionsInCycle:   0,       // completed work sessions since last long break
   blockSites:        true,
+  rewardSite:        null,    // domain auto-unlocked during break phases (or null)
+  sound:             null,    // ambient sound preset id (or null = silent)
+  volume:            0.5,     // 0..1
+  rewardTimerId:     null,    // id of the active break-phase reward timer
   tickHandle:        null,
 };
 
@@ -1615,19 +1646,67 @@ function pomodoroStartPhase(phase) {
   pomodoroState.pausedRemainingMs = 0;
   pomodoroState.running = true;
 
-  // When entering a work phase with "block sites" enabled, stop any active
-  // site-unlock timers so the extension re-blocks everything.
-  if (phase === 'work' && pomodoroState.blockSites) {
-    const toStop = state.activeTimers.filter(t => t.linkedSite && !t.finished).map(t => t.id);
-    if (toStop.length > 0) {
-      toStop.forEach(id => stopTimer(id));
-      showToast('🔒 Разблокировки сброшены — фокус-режим', 'info');
+  // ALWAYS clear any leftover Pomodoro-owned reward timer when changing phase —
+  // a fresh phase gets a fresh timer (or none if entering work).
+  pomodoroClearRewardTimer();
+
+  if (phase === 'work') {
+    // Stop any active site-unlock timers so the extension re-blocks everything
+    // during the focus session (when the user opted in).
+    if (pomodoroState.blockSites) {
+      const toStop = state.activeTimers
+        .filter(t => t.linkedSite && !t.finished && !t.pomodoroOwned)
+        .map(t => t.id);
+      if (toStop.length > 0) {
+        toStop.forEach(id => stopTimer(id));
+        showToast('🔒 Разблокировки сброшены — фокус-режим', 'info');
+      }
     }
+    // Resume ambient sound for the work phase
+    pomodoroSoundStart();
+  } else {
+    // Break phase — stop ambient sound (user wanted sound only during work)
+    pomodoroSoundStop();
+    // Auto-unlock the configured reward site for the duration of the break.
+    pomodoroStartRewardTimer(phase);
   }
 
   pomodoroStartTick();
   renderPomodoro();
   showToast(`${pomodoroPhaseLabel(phase)} начата`, 'info');
+}
+
+/**
+ * Auto-start a non-pausable reward timer for the duration of the given break
+ * phase, unlocking pomodoroState.rewardSite via the extension. No-op if the
+ * user hasn't picked a reward site.
+ */
+function pomodoroStartRewardTimer(phase) {
+  const site = pomodoroState.rewardSite;
+  if (!site) return;
+  const minutes = pomodoroPhaseMinutes(phase);
+  if (!minutes || minutes <= 0) return;
+
+  const id = startTimer(
+    `🎁 Pomodoro reward`,
+    '🎁',
+    minutes,
+    site,
+    { noPause: true, pomodoroOwned: true, silent: true }
+  );
+  pomodoroState.rewardTimerId = id;
+  showToast(`🎁 ${escapeHtml(site)} разблокирован на ${minutes} мин`, 'success');
+}
+
+/** Tear down the Pomodoro-owned reward timer (if any). */
+function pomodoroClearRewardTimer() {
+  // Be defensive: drop any pomodoroOwned timer we know about, not just the
+  // tracked id (handles the case where the user manually X'd the widget).
+  const owned = state.activeTimers
+    .filter(t => t.pomodoroOwned && !t.finished)
+    .map(t => t.id);
+  owned.forEach(id => stopTimer(id));
+  pomodoroState.rewardTimerId = null;
 }
 
 function pomodoroPause() {
@@ -1658,6 +1737,8 @@ function pomodoroStop() {
     clearInterval(pomodoroState.tickHandle);
     pomodoroState.tickHandle = null;
   }
+  pomodoroClearRewardTimer();
+  pomodoroSoundStop();
   renderPomodoro();
   showToast('⏹ Фокус-сессия остановлена', 'info');
 }
@@ -1795,22 +1876,70 @@ function initPomodoroModal() {
   const stopBtn   = document.getElementById('focus-stop-btn');
   if (!openBtn || !modal) return;
 
-  const workInput  = document.getElementById('focus-work-min');
-  const shortInput = document.getElementById('focus-short-min');
-  const longInput  = document.getElementById('focus-long-min');
-  const blockCheck = document.getElementById('focus-block-sites');
+  const workInput   = document.getElementById('focus-work-min');
+  const shortInput  = document.getElementById('focus-short-min');
+  const longInput   = document.getElementById('focus-long-min');
+  const blockCheck  = document.getElementById('focus-block-sites');
+  const rewardSel   = document.getElementById('focus-reward-site');
+  const soundGrid   = document.getElementById('focus-sound-grid');
+  const volumeInput = document.getElementById('focus-volume');
+
+  // Render the sound preset buttons once
+  if (soundGrid && !soundGrid.dataset.rendered) {
+    soundGrid.innerHTML = `
+      <button type="button" class="sound-btn" data-sound="">🚫 Off</button>
+      ${POMODORO_SOUND_PRESETS.map(p =>
+        `<button type="button" class="sound-btn" data-sound="${p.id}">${p.emoji} ${p.label}</button>`
+      ).join('')}
+    `;
+    soundGrid.dataset.rendered = '1';
+    soundGrid.querySelectorAll('.sound-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const presetId = btn.dataset.sound || null;
+        pomodoroSoundSelect(presetId);
+        updateSoundGridSelection();
+      });
+    });
+  }
+
+  function updateSoundGridSelection() {
+    if (!soundGrid) return;
+    const current = pomodoroState.sound || '';
+    soundGrid.querySelectorAll('.sound-btn').forEach(b => {
+      b.classList.toggle('active', (b.dataset.sound || '') === current);
+    });
+  }
+
+  /** Repopulate the reward-site dropdown from current blockedSites. */
+  function refreshRewardSiteOptions() {
+    if (!rewardSel) return;
+    const current = pomodoroState.rewardSite || '';
+    const options = ['<option value="">— Не использовать —</option>']
+      .concat(state.blockedSites.map(domain =>
+        `<option value="${escapeHtml(domain)}"${domain === current ? ' selected' : ''}>${escapeHtml(domain)}</option>`
+      ));
+    rewardSel.innerHTML = options.join('');
+  }
 
   openBtn.addEventListener('click', () => {
     workInput.value    = pomodoroState.workMin;
     shortInput.value   = pomodoroState.shortMin;
     longInput.value    = pomodoroState.longMin;
     blockCheck.checked = pomodoroState.blockSites;
+    if (volumeInput) volumeInput.value = Math.round(pomodoroState.volume * 100);
+    refreshRewardSiteOptions();
+    updateSoundGridSelection();
     renderPomodoro();
     openModal('focus-modal');
   });
-  closeBtn.addEventListener('click', () => closeModal('focus-modal'));
+  /** Stop preview sound on close if no actual session is running. */
+  const closeFocusModal = () => {
+    if (!pomodoroState.running) pomodoroSoundStop();
+    closeModal('focus-modal');
+  };
+  closeBtn.addEventListener('click', closeFocusModal);
   modal.addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeModal('focus-modal');
+    if (e.target === e.currentTarget) closeFocusModal();
   });
 
   const readSettings = () => {
@@ -1818,12 +1947,28 @@ function initPomodoroModal() {
     pomodoroState.shortMin   = Math.max(1, parseInt(shortInput.value, 10) || 5);
     pomodoroState.longMin    = Math.max(1, parseInt(longInput.value,  10) || 15);
     pomodoroState.blockSites = blockCheck.checked;
+    pomodoroState.rewardSite = (rewardSel && rewardSel.value) ? rewardSel.value : null;
+    // Persist into the saved-settings slot too so they survive reload
+    state.pomodoroSettings.workMin    = pomodoroState.workMin;
+    state.pomodoroSettings.shortMin   = pomodoroState.shortMin;
+    state.pomodoroSettings.longMin    = pomodoroState.longMin;
+    state.pomodoroSettings.blockSites = pomodoroState.blockSites;
+    state.pomodoroSettings.rewardSite = pomodoroState.rewardSite;
+    saveState();
   };
 
   [workInput, shortInput, longInput].forEach(input => {
     input.addEventListener('change', readSettings);
   });
   blockCheck.addEventListener('change', readSettings);
+  if (rewardSel) rewardSel.addEventListener('change', readSettings);
+
+  if (volumeInput) {
+    volumeInput.addEventListener('input', () => {
+      const v = (parseInt(volumeInput.value, 10) || 0) / 100;
+      pomodoroSoundSetVolume(v);
+    });
+  }
 
   // Presets inside the focus modal
   document.querySelectorAll('.focus-presets .preset-btn').forEach(btn => {
@@ -1844,6 +1989,282 @@ function initPomodoroModal() {
   resumeBtn.addEventListener('click', pomodoroResume);
   skipBtn.addEventListener('click',   pomodoroSkip);
   stopBtn.addEventListener('click',   pomodoroStop);
+}
+
+// ==========================================
+// Pomodoro Ambient Sound Engine (Web Audio API, fully procedural)
+// ==========================================
+//
+// Five presets, all generated on the fly via Web Audio API — no audio files,
+// no external requests, perfect infinite loops, works offline.
+//
+//   🌧️ rain  — pink noise → high-pass + low-pass band, mimics rainfall
+//   🍃 wind  — brown noise → slowly modulated low-pass for "gusts"
+//   🎧 brown — pure brown noise (Paul Kellett)
+//   🌊 ocean — pink noise → low-pass + slow LFO on amplitude (waves)
+//   🔥 fire  — band-pass noise + scheduled crackle bursts
+//
+// Public API:
+//   pomodoroSoundStart()              start the currently-selected preset
+//   pomodoroSoundStop()               stop everything, release nodes
+//   pomodoroSoundSetVolume(v)         live-update master gain
+//   pomodoroSoundSelect(presetId)     change active preset (auto-previews)
+
+const POMODORO_SOUND_PRESETS = [
+  { id: 'rain',  emoji: '🌧️', label: 'Дождь'       },
+  { id: 'wind',  emoji: '🍃', label: 'Ветер'       },
+  { id: 'brown', emoji: '🎧', label: 'Brown noise' },
+  { id: 'ocean', emoji: '🌊', label: 'Океан'       },
+  { id: 'fire',  emoji: '🔥', label: 'Камин'       },
+];
+
+const soundEngine = {
+  ctx:           null, // AudioContext (lazy)
+  masterGain:    null, // master volume node
+  nodes:         [],   // list of currently-active nodes (for cleanup)
+  crackleHandle: null, // setTimeout handle for fire crackles
+  preset:        null, // currently-playing preset id
+};
+
+function ensureAudioContext() {
+  if (soundEngine.ctx) return soundEngine.ctx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) {
+    console.warn('[Sound] Web Audio API not supported');
+    return null;
+  }
+  soundEngine.ctx = new Ctx();
+  soundEngine.masterGain = soundEngine.ctx.createGain();
+  soundEngine.masterGain.gain.value = pomodoroState.volume;
+  soundEngine.masterGain.connect(soundEngine.ctx.destination);
+  return soundEngine.ctx;
+}
+
+// ── Noise generators ──────────────────────────────────────────────────────
+
+/** Brown noise via Paul Kellett's economy formula. ~10 s loop, mono. */
+function generateBrownNoiseBuffer(ctx, seconds = 10) {
+  const buf  = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  let lastOut = 0;
+  for (let i = 0; i < data.length; i++) {
+    const white = Math.random() * 2 - 1;
+    lastOut = (lastOut + 0.02 * white) / 1.02;
+    data[i] = lastOut * 3.5;  // gain compensation
+  }
+  return buf;
+}
+
+/** Pink noise via Voss-McCartney algorithm. */
+function generatePinkNoiseBuffer(ctx, seconds = 10) {
+  const buf  = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < data.length; i++) {
+    const white = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + white * 0.0555179;
+    b1 = 0.99332 * b1 + white * 0.0750759;
+    b2 = 0.96900 * b2 + white * 0.1538520;
+    b3 = 0.86650 * b3 + white * 0.3104856;
+    b4 = 0.55000 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.0168980;
+    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+    b6 = white * 0.115926;
+  }
+  return buf;
+}
+
+/** White noise. */
+function generateWhiteNoiseBuffer(ctx, seconds = 10) {
+  const buf  = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  return buf;
+}
+
+// ── Graph builders for each preset ────────────────────────────────────────
+
+function buildSoundGraph(preset) {
+  const ctx = soundEngine.ctx;
+  const out = soundEngine.masterGain;
+  const nodes = [];
+
+  const addLoopingSource = (buffer) => {
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.start();
+    nodes.push(src);
+    return src;
+  };
+
+  switch (preset) {
+    case 'brown': {
+      const src = addLoopingSource(generateBrownNoiseBuffer(ctx, 10));
+      src.connect(out);
+      break;
+    }
+
+    case 'rain': {
+      const src = addLoopingSource(generatePinkNoiseBuffer(ctx, 10));
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 1200;
+      hp.Q.value = 0.7;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 4500;
+      const g = ctx.createGain();
+      g.gain.value = 1.6;  // boost — high-pass cuts a lot of energy
+      src.connect(hp);
+      hp.connect(lp);
+      lp.connect(g);
+      g.connect(out);
+      nodes.push(hp, lp, g);
+      break;
+    }
+
+    case 'wind': {
+      const src = addLoopingSource(generateBrownNoiseBuffer(ctx, 15));
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 600;
+      lp.Q.value = 1.5;
+      const g = ctx.createGain();
+      g.gain.value = 1.4;
+      src.connect(lp);
+      lp.connect(g);
+      g.connect(out);
+      // LFO modulating filter cutoff for "gusts"
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.08;  // ~1 gust every 12 s
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 350;    // ±350 Hz around 600 Hz
+      lfo.connect(lfoGain);
+      lfoGain.connect(lp.frequency);
+      lfo.start();
+      nodes.push(lp, g, lfo, lfoGain);
+      break;
+    }
+
+    case 'ocean': {
+      const src = addLoopingSource(generatePinkNoiseBuffer(ctx, 10));
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 700;
+      const wave = ctx.createGain();
+      wave.gain.value = 0.5;  // base amplitude (LFO will modulate around this)
+      src.connect(lp);
+      lp.connect(wave);
+      wave.connect(out);
+      // Slow LFO on gain → wave swells (~one full wave every ~10 s)
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.1;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 0.45;
+      lfo.connect(lfoGain);
+      lfoGain.connect(wave.gain);
+      lfo.start();
+      nodes.push(lp, wave, lfo, lfoGain);
+      break;
+    }
+
+    case 'fire': {
+      // Base hiss
+      const src = addLoopingSource(generatePinkNoiseBuffer(ctx, 10));
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1000;
+      bp.Q.value = 0.5;
+      const baseGain = ctx.createGain();
+      baseGain.gain.value = 0.7;
+      src.connect(bp);
+      bp.connect(baseGain);
+      baseGain.connect(out);
+      nodes.push(bp, baseGain);
+
+      // Random crackle bursts. Each burst is ~50 ms of band-passed noise
+      // with a fast attack/decay envelope, scheduled at random intervals.
+      const scheduleCrackle = () => {
+        if (soundEngine.preset !== 'fire') return; // bail if stopped
+        const t = ctx.currentTime;
+        const burstSrc = ctx.createBufferSource();
+        burstSrc.buffer = generateWhiteNoiseBuffer(ctx, 0.08);
+        const burstFilter = ctx.createBiquadFilter();
+        burstFilter.type = 'bandpass';
+        burstFilter.frequency.value = 1800 + Math.random() * 1500;
+        burstFilter.Q.value = 1.5;
+        const burstGain = ctx.createGain();
+        const peak = 0.4 + Math.random() * 0.6;
+        burstGain.gain.setValueAtTime(0.0001, t);
+        burstGain.gain.exponentialRampToValueAtTime(peak,    t + 0.005);
+        burstGain.gain.exponentialRampToValueAtTime(0.0001,  t + 0.07);
+        burstSrc.connect(burstFilter);
+        burstFilter.connect(burstGain);
+        burstGain.connect(out);
+        burstSrc.start(t);
+        burstSrc.stop(t + 0.08);
+
+        const next = 120 + Math.random() * 800;
+        soundEngine.crackleHandle = setTimeout(scheduleCrackle, next);
+      };
+      scheduleCrackle();
+      break;
+    }
+  }
+
+  return nodes;
+}
+
+function pomodoroSoundStart() {
+  const preset = pomodoroState.sound;
+  if (!preset) return;
+  if (soundEngine.preset === preset) return; // already playing this preset
+  pomodoroSoundStop();
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume();
+  soundEngine.preset = preset;
+  soundEngine.nodes  = buildSoundGraph(preset);
+}
+
+function pomodoroSoundStop() {
+  if (soundEngine.crackleHandle) {
+    clearTimeout(soundEngine.crackleHandle);
+    soundEngine.crackleHandle = null;
+  }
+  for (const n of soundEngine.nodes) {
+    try { if (typeof n.stop === 'function') n.stop(); } catch (_) {}
+    try { n.disconnect(); } catch (_) {}
+  }
+  soundEngine.nodes  = [];
+  soundEngine.preset = null;
+}
+
+function pomodoroSoundSetVolume(v) {
+  const clamped = Math.max(0, Math.min(1, v));
+  pomodoroState.volume = clamped;
+  state.pomodoroSettings.volume = clamped;
+  if (soundEngine.masterGain) {
+    soundEngine.masterGain.gain.value = clamped;
+  }
+  saveState();
+}
+
+/** Change the active sound preset (and immediately preview / live-switch). */
+function pomodoroSoundSelect(presetId) {
+  pomodoroState.sound = presetId || null;
+  state.pomodoroSettings.sound = pomodoroState.sound;
+  saveState();
+  if (presetId) {
+    // Force a fresh start (so re-clicking the same preset still previews)
+    pomodoroSoundStop();
+    pomodoroSoundStart();
+  } else {
+    pomodoroSoundStop();
+  }
 }
 
 // ==========================================
@@ -2646,8 +3067,14 @@ function formatTime(ms) {
  * @param {string}      emoji      - Emoji icon for the widget
  * @param {number}      minutes    - Timer duration in minutes
  * @param {string|null} linkedSite - Domain to unblock via the extension while the timer runs
+ * @param {object}      [opts]
+ * @param {boolean} [opts.noPause]       - If true, hides the pause button (Pomodoro break rewards)
+ * @param {boolean} [opts.pomodoroOwned] - If true, marks the timer as owned by the Pomodoro engine
+ *                                         so it can be force-cleared on phase transitions
+ * @param {boolean} [opts.silent]        - If true, suppress the "Timer started" toast
+ * @returns {string} the new timer id
  */
-function startTimer(title, emoji, minutes, linkedSite) {
+function startTimer(title, emoji, minutes, linkedSite, opts = {}) {
   const totalMs = minutes * 60 * 1000;
   const timer = {
     id:              `timer-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -2659,12 +3086,16 @@ function startTimer(title, emoji, minutes, linkedSite) {
     pausedRemaining: null,
     finished:        false,
     linkedSite:      linkedSite || null,
+    noPause:         !!opts.noPause,
+    pomodoroOwned:   !!opts.pomodoroOwned,
   };
   state.activeTimers.push(timer);
   saveState();
   renderTimers();
   startTimerTick();
-  showToast(`⏱️ Timer started: ${escapeHtml(title)} (${minutes} min)`, 'info');
+  if (!opts.silent) {
+    showToast(`⏱️ Timer started: ${escapeHtml(title)} (${minutes} min)`, 'info');
+  }
 
   // Notify the extension to unblock the linked site
   if (linkedSite) {
@@ -2685,12 +3116,17 @@ function startTimer(title, emoji, minutes, linkedSite) {
       setTimeout(() => syncExtensionState(), 1000);
     }
   }
+
+  return timer.id;
 }
 
 /** Pause or resume a timer by id */
 function pauseTimer(timerId) {
   const timer = state.activeTimers.find(t => t.id === timerId);
   if (!timer || timer.finished) return;
+  // Pomodoro reward timers are intentionally non-pausable — they run in
+  // parallel with the break phase wall-clock.
+  if (timer.noPause) return;
 
   if (timer.paused) {
     // Resume: restore endTime from remaining ms
@@ -2825,7 +3261,7 @@ function renderTimers() {
           <div class="timer-time ${timeClass}">${timeDisplay}</div>
         </div>
         <div class="timer-controls">
-          ${!finished ? `
+          ${!finished && !timer.noPause ? `
             <button class="btn btn-ghost btn-sm" data-action="timer-pause" data-timer-id="${timer.id}"
               title="${timer.paused ? 'Resume' : 'Pause'}" aria-label="${timer.paused ? 'Resume' : 'Pause'}">${timer.paused ? '▶' : '⏸'}</button>
           ` : ''}
@@ -3688,6 +4124,7 @@ const EXPORTABLE_KEYS = [
   'qm_blockedSites', 'qm_dailyDiscountData', 'qm_creditData',
   'qm_achievements', 'qm_pomodoroStats',
   'qm_notificationsEnabled', 'qm_reminderSettings',
+  'qm_pomodoroSettings',
 ];
 
 /** Build a serialisable export payload from localStorage */
