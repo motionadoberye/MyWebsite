@@ -46,6 +46,7 @@
           <span class="integrity-label-text">days</span>
         </div>
         <button class="btn-cheat-micro" id="i-cheated-btn" title="Я сорвался — сбросить стрик" aria-label="I Cheated">😔</button>
+        <button class="btn-panic" id="panic-btn" title="Я сдаюсь — зафиксировать панику (−75 XP · −3 days)" aria-label="Panic / Giving up">🏳️</button>
         <button class="btn-header-icon" id="focus-btn" title="Focus / Pomodoro (F)" aria-label="Focus">🎯</button>
         <button class="btn-header-icon" id="shortcuts-btn" title="Клавиатурные сокращения (?)" aria-label="Keyboard shortcuts">⌨️</button>
         <button class="btn-header-icon pwa-install-btn" id="pwa-install-btn" title="Установить приложение" aria-label="Install PWA" style="display:none;">📲</button>
@@ -258,6 +259,65 @@
           <div class="stat-value" id="stat-dreams-xp">0</div>
           <div class="stat-label">XP from Dreams</div>
         </div>
+      </div>
+
+      <!-- ===== SELF-BINDING / ANTI-AKRASIA DASHBOARD ===== -->
+      <div class="card self-binding-card" style="margin-top: 1.5rem;">
+        <div class="self-binding-header">
+          <h3 class="card-title" style="margin-bottom:0;">🏳️ Self-Binding · Shame Log</h3>
+          <div class="self-binding-actions">
+            <button class="btn btn-ghost btn-sm" id="open-reflection-btn" title="Открыть вечернюю рефлексию">📝 Рефлексия</button>
+            <button class="btn btn-emergency" id="emergency-unlock-btn" title="Экстренная разблокировка за XP">🆘 Emergency</button>
+          </div>
+        </div>
+        <p class="self-binding-intro">
+          Каждый раз, когда ты ломаешь правила — отключаешь расширение, сдаёшься или тратишь XP на разблокировку — это записывается сюда навсегда. Цена видна, чтобы не было соблазна «просто разок».
+        </p>
+
+        <div class="shame-stats-grid">
+          <div class="shame-stat-tile">
+            <div class="shame-stat-emoji">🔌</div>
+            <div class="shame-stat-value" id="shame-stat-disabled">0</div>
+            <div class="shame-stat-label">Отключено</div>
+          </div>
+          <div class="shame-stat-tile">
+            <div class="shame-stat-emoji">🗑️</div>
+            <div class="shame-stat-value" id="shame-stat-removed">0</div>
+            <div class="shame-stat-label">Удалено</div>
+          </div>
+          <div class="shame-stat-tile">
+            <div class="shame-stat-emoji">🏳️</div>
+            <div class="shame-stat-value" id="shame-stat-panic">0</div>
+            <div class="shame-stat-label">Паник</div>
+          </div>
+          <div class="shame-stat-tile">
+            <div class="shame-stat-emoji">🆘</div>
+            <div class="shame-stat-value" id="shame-stat-emergency">0</div>
+            <div class="shame-stat-label">Emergency</div>
+          </div>
+          <div class="shame-stat-tile">
+            <div class="shame-stat-emoji">💀</div>
+            <div class="shame-stat-value" id="shame-stat-xp-lost">0</div>
+            <div class="shame-stat-label">XP потеряно</div>
+          </div>
+        </div>
+
+        <div class="shame-log-list" id="shame-log-list"></div>
+      </div>
+
+      <!-- ===== TAB TIME TRACKER CARD ===== -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <div class="tab-time-header">
+          <h3 class="card-title" style="margin-bottom:0;">⏳ Время на разблок-сайтах</h3>
+          <div class="tab-time-totals">
+            <span>Сегодня: <strong id="tab-time-total-today">0с</strong></span>
+            <span>Всего: <strong id="tab-time-total-all">0с</strong></span>
+          </div>
+        </div>
+        <p class="self-binding-intro">
+          Расширение считает реальные активные секунды на заблокированных доменах, когда ты их разблокировал. Посмотри цифры — и удивись.
+        </p>
+        <div id="tab-time-breakdown" class="tab-time-breakdown"></div>
       </div>
 
       <div class="card" style="margin-top: 1.5rem;">
@@ -953,6 +1013,137 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" id="cancel-dream-btn">Cancel</button>
         <button class="btn btn-primary" id="save-dream-btn">Add Dream</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PANIC / CONFESSION MODAL ===== -->
+  <div class="modal-overlay" id="panic-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">🏳️ Я сдаюсь</h3>
+        <button class="modal-close" id="close-panic-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="panic-warning">
+          Ты вот-вот сдашься. Это нормально — но оно <strong>будет записано навсегда</strong>. Ты увидишь эту запись завтра, и послезавтра, и через месяц. В этом и есть смысл.
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="panic-reason">Почему сдаёшься? (минимум 30 символов)</label>
+          <textarea class="form-input form-textarea" id="panic-reason" placeholder="Опиши конкретно: что триггернуло, что хочешь сделать, чего реально боишься. Врать себе дорого." maxlength="500"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="panic-confirm-text">Напиши <strong style="color:var(--accent-red)">СДАЮСЬ</strong> чтобы подтвердить</label>
+          <input class="form-input reset-confirm-input" type="text" id="panic-confirm-text" placeholder="СДАЮСЬ" maxlength="20" autocomplete="off">
+        </div>
+        <div class="panic-cost" id="panic-cost"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-panic-btn">Отмена — я справлюсь</button>
+        <button class="btn btn-danger-filled" id="confirm-panic-btn" disabled>Зафиксировать поражение</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== EMERGENCY UNLOCK MODAL ===== -->
+  <div class="modal-overlay" id="emergency-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">🆘 Экстренная разблокировка</h3>
+        <button class="modal-close" id="close-emergency-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="self-binding-intro" style="margin-top:0;">
+          Это <strong>единственный официальный способ</strong> разблокировать сайт, когда у тебя ноль монет. Вместо того чтобы идти в chrome://extensions и отключать расширение (бесплатно, тихо, привычно), ты платишь XP и сгораешь integrity-стриком. Цена растёт каждое использование за неделю.
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="emergency-site">Какой сайт разблокировать</label>
+          <select class="form-input" id="emergency-site"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="emergency-minutes">На сколько минут</label>
+          <input class="form-input" type="number" id="emergency-minutes" min="1" max="120" value="10">
+        </div>
+        <div class="emergency-cost-box" id="emergency-cost"></div>
+        <div class="form-group" style="margin-top:1rem;">
+          <label class="form-label" for="emergency-confirm-text">Напиши <strong style="color:var(--accent-red)">МНЕ ОЧЕНЬ НАДО</strong> чтобы подтвердить</label>
+          <input class="form-input reset-confirm-input" type="text" id="emergency-confirm-text" placeholder="МНЕ ОЧЕНЬ НАДО" maxlength="30" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-emergency-btn">Отмена</button>
+        <button class="btn btn-danger-filled" id="confirm-emergency-btn" disabled>Заплатить и разблокировать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MORNING INTENTIONS MODAL ===== -->
+  <div class="modal-overlay" id="morning-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">🌅 Утренний ритуал</h3>
+      </div>
+      <div class="modal-body">
+        <p class="self-binding-intro" style="margin-top:0;">
+          Три конкретных намерения на сегодня. Это не todo-лист — это обещание себе. Вечером ты вернёшься и отметишь, сдержал ли слово.
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="morning-int-1">1. Что я сделаю сегодня</label>
+          <input class="form-input" type="text" id="morning-int-1" placeholder="Например: закрою 3 рабочие задачи до обеда" maxlength="200" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="morning-int-2">2. Что я сделаю сегодня</label>
+          <input class="form-input" type="text" id="morning-int-2" placeholder="Например: 30 минут тренировки" maxlength="200" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="morning-int-3">3. Что я сделаю сегодня</label>
+          <input class="form-input" type="text" id="morning-int-3" placeholder="Например: лёг спать до 00:00" maxlength="200" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="morning-avoid-site">🚫 Сайт, на котором <em>не</em> буду залипать (необязательно)</label>
+          <select class="form-input" id="morning-avoid-site"></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="skip-morning-btn">Позже</button>
+        <button class="btn btn-primary" id="save-morning-btn" disabled>✍️ Запечатать намерения</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== EVENING REFLECTION MODAL ===== -->
+  <div class="modal-overlay" id="reflection-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">🌙 Вечерняя рефлексия</h3>
+        <button class="modal-close" id="close-reflection-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="self-binding-intro" style="margin-top:0;">
+          Отметь честно, выполнил ли утренние намерения. Не лги: метрика всё равно будет видна только тебе, а шанс стать лучше начинается с правды.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Утренние намерения</label>
+          <div id="reflection-intentions"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="reflection-rating">
+            Самооценка дня: <strong id="reflection-rating-value">5</strong> / 10
+          </label>
+          <input type="range" id="reflection-rating" min="1" max="10" value="5" step="1" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="reflection-wasted">Сколько минут профукал сегодня (по ощущению)</label>
+          <input class="form-input" type="number" id="reflection-wasted" min="0" max="1440" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="reflection-note">Одна фраза (необязательно)</label>
+          <textarea class="form-input form-textarea" id="reflection-note" placeholder="Что работало, что нет, что сделаю иначе завтра" maxlength="500"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-reflection-btn">Отмена</button>
+        <button class="btn btn-primary" id="save-reflection-btn">💾 Сохранить рефлексию</button>
       </div>
     </div>
   </div>

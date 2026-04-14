@@ -241,6 +241,24 @@ body {
   border-color: var(--accent-purple);
 }
 
+/* Panic / "I'm giving up" header button */
+.btn-panic {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+  line-height: 1;
+}
+.btn-panic:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: var(--accent-red);
+  transform: translateY(-1px);
+}
+
 /* ==========================================
    Navigation
    ========================================== */
@@ -2533,4 +2551,306 @@ kbd {
   border-radius: 5px;
   text-align: center;
   line-height: 1;
+}
+
+/* ==========================================
+   Self-Binding / Shame Log / Anti-Akrasia
+   ========================================== */
+.self-binding-card {
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.04), var(--bg-card));
+}
+.self-binding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.self-binding-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.self-binding-intro {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0.3rem 0 1rem;
+}
+.btn-emergency {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-emergency:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: var(--accent-red);
+  transform: translateY(-1px);
+}
+
+/* Shame stat tiles grid */
+.shame-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.shame-stat-tile {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 10px;
+  padding: 0.65rem 0.4rem;
+  text-align: center;
+}
+.shame-stat-emoji {
+  font-size: 1.15rem;
+  margin-bottom: 0.2rem;
+}
+.shame-stat-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--accent-red);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.shame-stat-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.2rem;
+}
+
+/* Shame log list */
+.shame-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.shame-empty {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 0.85rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-card-hover);
+}
+.shame-entry {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+}
+.shame-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+.shame-emoji {
+  font-size: 1rem;
+}
+.shame-label {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.shame-when {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.shame-notes {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  margin-top: 0.25rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.shame-cost {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+.shame-xp,
+.shame-streak {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* ==========================================
+   Tab Time Tracker
+   ========================================== */
+.tab-time-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.tab-time-totals {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.tab-time-totals strong {
+  color: var(--accent-purple-light);
+  font-variant-numeric: tabular-nums;
+}
+.tab-time-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tab-time-row {
+  display: grid;
+  grid-template-columns: minmax(0, 130px) 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+.tab-time-domain {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-time-bar-wrap {
+  height: 8px;
+  background: var(--bg-card-hover);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.tab-time-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-purple), var(--accent-red));
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+.tab-time-value {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 60px;
+  text-align: right;
+}
+
+/* ==========================================
+   Emergency Unlock Modal
+   ========================================== */
+.emergency-cost-box {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin: 0.5rem 0 0.25rem;
+}
+.emergency-cost-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1rem;
+  color: var(--accent-red);
+  margin-bottom: 0.25rem;
+}
+.emergency-cost-line strong {
+  font-weight: 800;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+.emergency-cost-sub {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+.emergency-cost-note {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.4rem;
+  line-height: 1.5;
+}
+
+/* ==========================================
+   Panic Modal
+   ========================================== */
+.panic-warning {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  margin-bottom: 1rem;
+}
+.panic-warning strong {
+  color: var(--accent-red);
+}
+.panic-cost {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px dashed rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: 0.25rem;
+}
+.panic-cost strong {
+  color: var(--accent-red);
+}
+
+/* ==========================================
+   Evening Reflection Modal
+   ========================================== */
+.reflection-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  margin-bottom: 0.4rem;
+  transition: var(--transition);
+}
+.reflection-row:hover {
+  border-color: var(--accent-purple);
+}
+.reflection-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-green, #4ade80);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.reflection-row span {
+  flex: 1;
+  line-height: 1.4;
+  word-break: break-word;
 }
