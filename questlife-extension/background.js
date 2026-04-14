@@ -25,6 +25,26 @@ const BLOCKED_PAGE_URL = chrome.runtime.getURL('blocked.html');
 /** Rule ID base for dynamic blocking rules (one rule per domain) */
 const RULE_ID_BASE = 1000;
 
+/**
+ * Where to redirect the user when they uninstall the extension.
+ * The site checks for `?extension_removed=1` on load and applies a
+ * self-binding penalty (logs it to the shame log, resets integrity streak).
+ *
+ * Override by writing a different URL to chrome.storage.local.uninstallUrl.
+ */
+const DEFAULT_UNINSTALL_URL = 'https://mywebsiteuhh.me/?extension_removed=1';
+
+/** Configure the "open on uninstall" redirect. Called during init. */
+async function configureUninstallUrl() {
+  try {
+    const custom = await storageGet('uninstallUrl', null);
+    const url = (typeof custom === 'string' && custom.length > 0) ? custom : DEFAULT_UNINSTALL_URL;
+    if (typeof chrome.runtime.setUninstallURL === 'function') {
+      chrome.runtime.setUninstallURL(url);
+    }
+  } catch (_) { /* non-fatal */ }
+}
+
 // ──────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────
@@ -303,6 +323,133 @@ async function checkOvertime() {
 }
 
 // ──────────────────────────────────────────
+// Tab-time tracker
+// ──────────────────────────────────────────
+//
+// Watches which domain is currently in the focused tab. Every TICK_MS
+// milliseconds, if that domain is one of the blocked-but-currently-unlocked
+// sites, we add the elapsed seconds to `tabTimeToday[domain]`. This is the
+// "time wasted on reward sites" metric shown in the Quest Manager dashboard.
+//
+// The counter is flushed to storage every ~10 s and reported back to the
+// QuestLife site so it can render the total. Resets at local midnight via
+// the existing `overtime_check` alarm (we piggy-back the same minute tick).
+
+/** Domain → seconds accumulated during the current focused session. */
+const tabTimeState = {
+  focusedDomain:   null,  // domain currently in focused tab (or null)
+  focusedTabId:    null,
+  sessionStart:    null,  // timestamp when current session started
+  lastFlushDate:   null,  // 'YYYY-MM-DD' — rolls counters at midnight
+};
+
+/** Pull the hostname from a URL string, stripping "www." */
+function hostnameFromUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    return u.hostname.replace(/^www\./, '');
+  } catch { return null; }
+}
+
+/** Return today's date as YYYY-MM-DD in local timezone. */
+function localDateStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/** Commit any in-progress focus session into the persisted counter. */
+async function flushTabTime() {
+  if (!tabTimeState.focusedDomain || !tabTimeState.sessionStart) return;
+  const now = Date.now();
+  const elapsed = Math.max(0, Math.floor((now - tabTimeState.sessionStart) / 1000));
+  if (elapsed <= 0) {
+    tabTimeState.sessionStart = now;
+    return;
+  }
+
+  // Only count if the domain is a currently-unlocked blocked site.
+  // (We don't track random browsing — only reward-site time.)
+  const blockedSites = await storageGet('blockedSites', DEFAULT_BLOCKED_SITES);
+  const activeTimers = await storageGet('activeTimers', []);
+  const unlocked = new Set(
+    activeTimers.filter(t => t.status === 'running').map(t => t.domain)
+  );
+  const domain = tabTimeState.focusedDomain;
+  const isTracked = blockedSites.includes(domain) && unlocked.has(domain);
+
+  if (isTracked) {
+    const today = localDateStr();
+    const tracker = (await storageGet('tabTimeTracker', null)) || {
+      today: {}, date: today, totalAllTime: 0,
+    };
+    // Roll the daily counter if the date changed
+    if (tracker.date !== today) {
+      tracker.date  = today;
+      tracker.today = {};
+    }
+    tracker.today[domain]   = (tracker.today[domain] || 0) + elapsed;
+    tracker.totalAllTime    = (tracker.totalAllTime || 0) + elapsed;
+    await storageSet({ tabTimeTracker: tracker });
+    // Push the update to any open site tabs so they can re-render live.
+    broadcastToQuestLife({
+      type: 'QUESTLIFE_TAB_TIME_UPDATE',
+      data: { tracker },
+    });
+  }
+
+  tabTimeState.sessionStart = now;
+}
+
+/** Start a new focus session on the given tab. */
+async function startTabTimeSession(tabId, url) {
+  await flushTabTime();
+  const host = url ? hostnameFromUrl(url) : null;
+  tabTimeState.focusedTabId  = tabId;
+  tabTimeState.focusedDomain = host;
+  tabTimeState.sessionStart  = Date.now();
+}
+
+/** Stop tracking entirely (no focused tab). */
+async function stopTabTimeSession() {
+  await flushTabTime();
+  tabTimeState.focusedTabId  = null;
+  tabTimeState.focusedDomain = null;
+  tabTimeState.sessionStart  = null;
+}
+
+// Hook into Chrome's tab lifecycle events
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const tab = await new Promise(resolve => chrome.tabs.get(tabId, t => resolve(t)));
+    if (tab && tab.url) {
+      await startTabTimeSession(tabId, tab.url);
+    }
+  } catch (_) { /* tab gone */ }
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.url && tabId === tabTimeState.focusedTabId) {
+    await startTabTimeSession(tabId, changeInfo.url);
+  }
+});
+
+chrome.windows.onFocusChanged.addListener(async windowId => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await stopTabTimeSession();
+  } else {
+    try {
+      const [tab] = await new Promise(resolve =>
+        chrome.tabs.query({ active: true, windowId }, tabs => resolve(tabs || []))
+      );
+      if (tab) await startTabTimeSession(tab.id, tab.url);
+    } catch (_) { /* ignore */ }
+  }
+});
+
+// ──────────────────────────────────────────
 // Daily reminder scheduling
 // ──────────────────────────────────────────
 
@@ -526,6 +673,41 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       }
 
+      case 'QUESTLIFE_GET_TAB_TIME': {
+        // Flush pending seconds, then return the latest tracker snapshot.
+        await flushTabTime();
+        const tracker = (await storageGet('tabTimeTracker', null)) || {
+          today: {}, date: localDateStr(), totalAllTime: 0,
+        };
+        // Also push it to all open site tabs so every open window updates.
+        broadcastToQuestLife({ type: 'QUESTLIFE_TAB_TIME_UPDATE', data: { tracker } });
+        sendResponse({ ok: true, tracker });
+        break;
+      }
+
+      case 'QUESTLIFE_RESET_TAB_TIME': {
+        // Reset the daily counter (site triggers this on a new day).
+        const tracker = {
+          today: {},
+          date:  localDateStr(),
+          totalAllTime: (await storageGet('tabTimeTracker', null))?.totalAllTime || 0,
+        };
+        await storageSet({ tabTimeTracker: tracker });
+        sendResponse({ ok: true, tracker });
+        break;
+      }
+
+      case 'QUESTLIFE_SET_UNINSTALL_URL': {
+        // Site can override the URL the extension opens when uninstalled.
+        const url = (message.data && message.data.url) || DEFAULT_UNINSTALL_URL;
+        await storageSet({ uninstallUrl: url });
+        if (typeof chrome.runtime.setUninstallURL === 'function') {
+          chrome.runtime.setUninstallURL(url);
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+
       // ── Queries from popup ──
 
       case 'GET_STATE':
@@ -600,6 +782,9 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   }
   if (alarm.name === 'overtime_check') {
     await checkOvertime();
+    // Also flush the tab-time counter roughly every minute so the site
+    // sees up-to-date numbers without needing a heartbeat ping.
+    await flushTabTime();
   }
   if (alarm.name === 'daily_reminder') {
     await fireDailyReminder();
@@ -626,11 +811,16 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (settings && settings.enabled) {
     await scheduleDailyReminder(settings);
   }
+
+  // Configure the "open this URL on uninstall" redirect so the site can
+  // log a shame event when the user removes the extension.
+  await configureUninstallUrl();
 });
 
 /** Re-apply blocking rules when the service worker restarts */
 chrome.runtime.onStartup.addListener(async () => {
   await rebuildBlockingRules();
+  await configureUninstallUrl();
   // Recreate recurring overtime alarm if it's gone
   const existing = await new Promise(resolve => chrome.alarms.get('overtime_check', resolve));
   if (!existing) {
