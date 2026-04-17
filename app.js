@@ -4558,6 +4558,15 @@ function initMorningIntentions() {
     });
   }
 
+  // Dismiss via ✕ or click on backdrop — without these the auto-opened modal
+  // traps the user (Save is disabled until 3 inputs are filled), which makes
+  // the whole app feel frozen.
+  const closeBtn = document.getElementById('close-morning-modal');
+  if (closeBtn) closeBtn.addEventListener('click', () => closeModal('morning-modal'));
+  modal.addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal('morning-modal');
+  });
+
   // Auto-open logic — called from init() after everything else is ready.
   const today = todayStr();
   if (state.morningIntention.date !== today) {
@@ -4600,7 +4609,7 @@ function initEveningReflection() {
         <input type="checkbox" class="reflection-check" data-idx="${i}">
         <span>${escapeHtml(t)}</span>
       </label>
-    `).join('') || '<div class="shame-empty">Сегодня не было утренних intentions.</div>';
+    `).join('') || '<div class="empty-state" style="padding:0.75rem 0;">Сегодня не было утренних intentions.</div>';
 
     ratingIn.value = 5;
     ratingOut.textContent = '5';
