@@ -217,6 +217,29 @@ async function stopTimer(timerId) {
   await rebuildBlockingRules();
 }
 
+/**
+ * Immediately redirect any currently-open tabs on `domain` (or its
+ * subdomains) to the blocked page. declarativeNetRequest only acts on
+ * new requests, so already-loaded tabs keep working until navigation —
+ * this closes that gap the moment a timer expires.
+ */
+async function redirectOpenTabsForDomain(domain) {
+  const tabs = await new Promise(resolve => chrome.tabs.query({}, resolve));
+  for (const tab of tabs) {
+    if (!tab.url || !tab.id) continue;
+    try {
+      const url = new URL(tab.url);
+      const hostname = url.hostname.replace(/^www\./, '');
+      if (WHITELISTED_SUBDOMAINS.includes(hostname)) continue;
+      if (hostname === domain || hostname.endsWith('.' + domain)) {
+        chrome.tabs.update(tab.id, {
+          url: `${BLOCKED_PAGE_URL}?domain=${encodeURIComponent(domain)}`,
+        });
+      }
+    } catch (_) { /* ignore invalid URLs */ }
+  }
+}
+
 /** Mark a timer as expired and (re)block its domain */
 async function expireTimer(timerId) {
   const activeTimers = await storageGet('activeTimers', []);
@@ -226,6 +249,7 @@ async function expireTimer(timerId) {
   timer.status = 'expired';
   await storageSet({ activeTimers });
   await rebuildBlockingRules();
+  await redirectOpenTabsForDomain(timer.domain);
 
   // Show browser notification
   chrome.notifications.create(`expired_${timerId}`, {
@@ -242,12 +266,17 @@ async function expireTimer(timerId) {
 /** Stop all timers and block everything */
 async function blockAll() {
   const activeTimers = await storageGet('activeTimers', []);
+  const domainsToClose = [];
   activeTimers.forEach(t => {
     chrome.alarms.clear(`timer_${t.id}`);
     t.status = 'expired';
+    if (t.domain) domainsToClose.push(t.domain);
   });
   await storageSet({ activeTimers });
   await rebuildBlockingRules();
+  for (const d of domainsToClose) {
+    await redirectOpenTabsForDomain(d);
+  }
 }
 
 // ──────────────────────────────────────────
