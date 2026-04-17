@@ -159,28 +159,6 @@ let state = {
     sound:      null,   // ambient sound preset id ('rain'|'wind'|'brown'|'ocean'|'fire')
     volume:     0.5,    // 0..1
   },
-  // ── Self-Binding: Shame Log & Willpower Mechanics ──
-  // An append-only ledger of events where the user used a willpower escape
-  // hatch (disabled the extension, emergency-unlocked a site, hit the panic
-  // button, etc.). Visible on the Impact dashboard. Designed to make the
-  // cost of cheating your own rules visible and painful.
-  shameLog: [],          // { id, ts, type, label, xpCost, coinCost, streakLost, notes }
-  shameStats: {
-    extensionDisabled:  0,  // detected via heartbeat timeout while window is focused
-    extensionRemoved:   0,  // detected via uninstallUrl param
-    panicButtonPresses: 0,
-    emergencyUnlocks:   0,
-    totalXpLost:        0,
-    totalStreakLost:    0,  // integrity days burned on shame events
-  },
-  // Emergency unlock: the only way to get past a blocked site when you have
-  // no coins left. Escalating XP cost per use — on purpose.
-  emergencyUnlockData: {
-    usesTotal:       0,     // lifetime uses
-    usesThisWeek:    0,     // uses in current ISO week (reset every Monday)
-    weekStartDate:   null,  // 'YYYY-MM-DD' of current week Monday
-    lastUsedDate:    null,  // 'YYYY-MM-DD' of last use
-  },
   // ── Daily Self-Binding Rituals ──
   // Morning intentions: 3 things you commit to for today. Auto-opens at
   // first load of each new day. Cannot be skipped.
@@ -210,14 +188,6 @@ let state = {
     today: {},              // { "youtube.com": 1800, ... } seconds
     date:  null,            // 'YYYY-MM-DD' of the `today` snapshot
     totalAllTime: 0,        // cumulative seconds across all days
-  },
-  // ── Extension heartbeat watchdog ──
-  // Runtime data about the last successful heartbeat. Helps detect when
-  // the extension is disabled while the tab stays open.
-  extensionBindData: {
-    lastPongAt:           null, // timestamp of last PONG received
-    lastKnownConnected:   false,
-    disconnectPenaltyDate: null, // 'YYYY-MM-DD' — throttles to 1 penalty per day
   },
 };
 
@@ -251,16 +221,12 @@ function saveState() {
   localStorage.setItem('qm_notificationsEnabled', JSON.stringify(state.notificationsEnabled));
   localStorage.setItem('qm_reminderSettings', JSON.stringify(state.reminderSettings));
   localStorage.setItem('qm_pomodoroSettings', JSON.stringify(state.pomodoroSettings));
-  // Self-binding mechanics
-  localStorage.setItem('qm_shameLog',            JSON.stringify(state.shameLog));
-  localStorage.setItem('qm_shameStats',          JSON.stringify(state.shameStats));
-  localStorage.setItem('qm_emergencyUnlockData', JSON.stringify(state.emergencyUnlockData));
+  // Daily rituals + runtime snapshots
   localStorage.setItem('qm_morningIntention',    JSON.stringify(state.morningIntention));
   localStorage.setItem('qm_eveningReflection',   JSON.stringify(state.eveningReflection));
   localStorage.setItem('qm_ritualsHistory',      JSON.stringify(state.ritualsHistory));
   localStorage.setItem('qm_pomodoroRuntime',     JSON.stringify(state.pomodoroRuntime));
   localStorage.setItem('qm_tabTimeTracker',      JSON.stringify(state.tabTimeTracker));
-  localStorage.setItem('qm_extensionBindData',   JSON.stringify(state.extensionBindData));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -350,16 +316,7 @@ function loadState() {
     pomodoroState.volume     = state.pomodoroSettings.volume;
   }
 
-  // ── Self-binding slices (all backward-compatible) ──
-  const savedShameLog = parse('qm_shameLog', null);
-  if (Array.isArray(savedShameLog)) state.shameLog = savedShameLog;
-
-  const savedShameStats = parse('qm_shameStats', null);
-  if (savedShameStats) state.shameStats = { ...state.shameStats, ...savedShameStats };
-
-  const savedEmergency = parse('qm_emergencyUnlockData', null);
-  if (savedEmergency) state.emergencyUnlockData = { ...state.emergencyUnlockData, ...savedEmergency };
-
+  // ── Daily rituals + runtime snapshots (all backward-compatible) ──
   const savedMorning = parse('qm_morningIntention', null);
   if (savedMorning) state.morningIntention = { ...state.morningIntention, ...savedMorning };
 
@@ -375,8 +332,10 @@ function loadState() {
   const savedTabTime = parse('qm_tabTimeTracker', null);
   if (savedTabTime) state.tabTimeTracker = { ...state.tabTimeTracker, ...savedTabTime };
 
-  const savedBindData = parse('qm_extensionBindData', null);
-  if (savedBindData) state.extensionBindData = { ...state.extensionBindData, ...savedBindData };
+  // Clean up orphan localStorage keys from the removed shame-log mechanics
+  // so they don't leak into future exports.
+  ['qm_shameLog', 'qm_shameStats', 'qm_emergencyUnlockData', 'qm_extensionBindData']
+    .forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
 }
 
 // ==========================================
@@ -1338,7 +1297,6 @@ function renderImpact() {
   renderAchievements();
   renderCategoryBreakdown();
   renderDifficultyBreakdown();
-  renderShameLog();
   renderTabTimeCard();
 }
 
@@ -4308,9 +4266,8 @@ const EXPORTABLE_KEYS = [
   'qm_achievements', 'qm_pomodoroStats',
   'qm_notificationsEnabled', 'qm_reminderSettings',
   'qm_pomodoroSettings', 'qm_pomodoroRuntime',
-  'qm_shameLog', 'qm_shameStats', 'qm_emergencyUnlockData',
   'qm_morningIntention', 'qm_eveningReflection', 'qm_ritualsHistory',
-  'qm_tabTimeTracker', 'qm_extensionBindData',
+  'qm_tabTimeTracker',
 ];
 
 /** Build a serialisable export payload from localStorage */
@@ -4529,479 +4486,6 @@ function initResetModal() {
   cancelBtn.addEventListener('click', () => closeModal('reset-modal'));
   modal.addEventListener('click', e => {
     if (e.target === e.currentTarget) closeModal('reset-modal');
-  });
-}
-
-// ==========================================
-// Self-Binding: Shame Log, Penalties & Escape Hatches
-// ==========================================
-//
-// The user is also the developer. They're not trying to hack their own
-// data — they're trying to avoid going into chrome://extensions at 2 AM
-// and toggling the blocker off to keep scrolling. Everything below is
-// designed to make those willpower escape hatches *visible* and *painful*.
-//
-// Nothing here can physically stop the user: they can always delete the
-// extension, blow away localStorage, or drop to devtools. The goal is to
-// add friction and a durable record so that bypassing the system carries
-// a real cost the user will feel the next day.
-
-const SHAME_TYPES = {
-  extension_removed:   { emoji: '🗑️', label: 'Удалил расширение' },
-  extension_disabled:  { emoji: '🔌', label: 'Отключил расширение' },
-  panic_button:        { emoji: '🏳️', label: 'Паника / сдался' },
-  emergency_unlock:    { emoji: '🆘', label: 'Экстренная разблокировка' },
-};
-
-/** XP penalty amounts per shame event */
-const SHAME_PENALTY = {
-  extension_removed:   100, // biggest penalty — this is the nuclear escape hatch
-  extension_disabled:  50,
-  panic_button:        75,
-  emergency_unlock:    0,   // cost is paid live (XP per minute) — no base fee
-};
-
-/** Streak days burned per shame event */
-const SHAME_STREAK_COST = {
-  extension_removed:   7,   // -7 days — a week of integrity gone
-  extension_disabled:  3,
-  panic_button:        3,
-  emergency_unlock:    0,
-};
-
-/**
- * Write an entry to the append-only shame log and apply the XP/streak cost.
- * @param {keyof SHAME_TYPES} type
- * @param {object} extra  { xpCost?, streakCost?, notes?, label? }
- */
-function logShame(type, extra = {}) {
-  const info    = SHAME_TYPES[type] || { emoji: '❗', label: type };
-  const xpCost     = extra.xpCost     ?? SHAME_PENALTY[type]     ?? 0;
-  const streakCost = extra.streakCost ?? SHAME_STREAK_COST[type] ?? 0;
-
-  const entry = {
-    id:         `shame-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    ts:         Date.now(),
-    type,
-    label:      extra.label || info.label,
-    emoji:      info.emoji,
-    xpCost,
-    streakCost,
-    notes:      extra.notes || '',
-  };
-  state.shameLog.unshift(entry);
-  // Cap the log so it never explodes (keep 500 most recent).
-  if (state.shameLog.length > 500) state.shameLog.length = 500;
-
-  // Tally aggregates for the dashboard
-  state.shameStats.totalXpLost     += xpCost;
-  state.shameStats.totalStreakLost += streakCost;
-  if (type === 'extension_disabled')  state.shameStats.extensionDisabled  += 1;
-  if (type === 'extension_removed')   state.shameStats.extensionRemoved   += 1;
-  if (type === 'panic_button')        state.shameStats.panicButtonPresses += 1;
-  if (type === 'emergency_unlock')    state.shameStats.emergencyUnlocks   += 1;
-
-  // Apply XP penalty (can drop XP below zero for current level — we do it
-  // conservatively: clamp at zero XP within the level, don't de-level)
-  if (xpCost > 0) {
-    state.userStats.xp = Math.max(0, state.userStats.xp - xpCost);
-  }
-  // Burn integrity streak days
-  if (streakCost > 0 && state.integrityData.currentStreak > 0) {
-    state.integrityData.currentStreak = Math.max(
-      0,
-      state.integrityData.currentStreak - streakCost
-    );
-  }
-
-  saveState();
-  updateHeader();
-  if (document.getElementById('section-impact')?.classList.contains('active')) {
-    renderImpact();
-  }
-  renderShameLog();
-  // Big red flash — visceral feedback so the cost is felt, not abstract
-  flashScreenRed();
-  const msg = `${info.emoji} ${entry.label} · −${xpCost} XP · −${streakCost} days`;
-  showToast(msg, 'error');
-  return entry;
-}
-
-/**
- * Check the URL for ?extension_removed=1 (set by the extension's
- * setUninstallURL when the user removes it). If present, log it as a
- * shame event and strip the param from the URL so reloads don't re-fire.
- */
-function checkExtensionRemovedFlag() {
-  try {
-    const url = new URL(location.href);
-    if (url.searchParams.get('extension_removed') === '1') {
-      logShame('extension_removed', {
-        notes: 'Расширение было удалено. Нулевая защита от отвлечений.',
-      });
-      url.searchParams.delete('extension_removed');
-      const newUrl = url.pathname + (url.search ? url.search : '') + url.hash;
-      history.replaceState(null, '', newUrl);
-      setTimeout(() => {
-        showToast(
-          '🗑️ Расширение удалено. Установи заново — это не шутка.',
-          'error'
-        );
-      }, 1200);
-    }
-  } catch (_) { /* malformed URL, ignore */ }
-}
-
-// ── Extension heartbeat watchdog ────────────────────────────────────────
-//
-// The content script answers QUESTLIFE_PING with QUESTLIFE_PONG immediately
-// when the extension is loaded. We ping once on startup (existing code)
-// plus every 15 s. If we miss 2 consecutive pings (~30 s of silence) AND
-// we previously had a connection in this session, we treat that as "the
-// user disabled the extension while the tab was open" and apply a penalty.
-
-const EXT_HEARTBEAT_INTERVAL_MS = 15 * 1000;
-const EXT_HEARTBEAT_TIMEOUT_MS  = 35 * 1000; // give a little slack
-let extHeartbeatTimer = null;
-
-function startExtensionHeartbeat() {
-  if (extHeartbeatTimer) return;
-  extHeartbeatTimer = setInterval(() => {
-    // Ping the extension
-    extensionSendMessage({ type: 'QUESTLIFE_PING' });
-    // Also poll the tab-time tracker so the dashboard stays fresh
-    extensionSendMessage({ type: 'QUESTLIFE_GET_TAB_TIME' });
-
-    const lastPong = state.extensionBindData.lastPongAt || 0;
-    const elapsed  = Date.now() - lastPong;
-
-    // If the user had a confirmed connection earlier in this session and
-    // hasn't responded in 35s, treat it as a disable event.
-    if (state.extensionBindData.lastKnownConnected && elapsed > EXT_HEARTBEAT_TIMEOUT_MS) {
-      // Throttle: at most one disable-penalty per day so we don't spam.
-      const today = todayStr();
-      if (state.extensionBindData.disconnectPenaltyDate !== today) {
-        state.extensionBindData.disconnectPenaltyDate = today;
-        state.extensionBindData.lastKnownConnected    = false;
-        extensionConnected = false;
-        updateExtensionStatus(false);
-        logShame('extension_disabled', {
-          notes: 'Расширение перестало отвечать, пока вкладка была открыта.',
-        });
-      }
-    }
-  }, EXT_HEARTBEAT_INTERVAL_MS);
-}
-
-/** Call this whenever we receive a PONG so the watchdog stays satisfied. */
-function noteExtensionHeartbeat() {
-  state.extensionBindData.lastPongAt         = Date.now();
-  state.extensionBindData.lastKnownConnected = true;
-  // Cheap save — happens at most every 15 s
-  try { localStorage.setItem('qm_extensionBindData', JSON.stringify(state.extensionBindData)); }
-  catch (_) {}
-}
-
-// ──────────────────────────────────────────
-// Tab-time tracker (consumed from extension)
-// ──────────────────────────────────────────
-
-function humanizeSeconds(s) {
-  if (!s || s < 60) return `${s || 0}с`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m} мин`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm > 0 ? `${h}ч ${rm}м` : `${h}ч`;
-}
-
-function updateTabTimeTrackerFromExtension(tracker) {
-  if (!tracker || typeof tracker !== 'object') return;
-  // Roll the daily slice if the extension reports a different date.
-  state.tabTimeTracker.date         = tracker.date || todayStr();
-  state.tabTimeTracker.today        = tracker.today || {};
-  state.tabTimeTracker.totalAllTime = tracker.totalAllTime || 0;
-  try { localStorage.setItem('qm_tabTimeTracker', JSON.stringify(state.tabTimeTracker)); }
-  catch (_) {}
-  renderTabTimeCard();
-}
-
-function renderTabTimeCard() {
-  const container = document.getElementById('tab-time-breakdown');
-  if (!container) return;
-  const totalToday = Object.values(state.tabTimeTracker.today || {})
-    .reduce((a, b) => a + b, 0);
-  const entries = Object.entries(state.tabTimeTracker.today || {})
-    .sort((a, b) => b[1] - a[1]);
-
-  const totalTodayEl = document.getElementById('tab-time-total-today');
-  const totalAllEl   = document.getElementById('tab-time-total-all');
-  if (totalTodayEl) totalTodayEl.textContent = humanizeSeconds(totalToday);
-  if (totalAllEl)   totalAllEl.textContent   = humanizeSeconds(state.tabTimeTracker.totalAllTime || 0);
-
-  if (entries.length === 0) {
-    container.innerHTML = '<div class="shame-empty">Сегодня ты ещё не тратил время на разблок-сайтах. Так держать!</div>';
-    return;
-  }
-  container.innerHTML = entries.map(([domain, sec]) => {
-    const pct = totalToday > 0 ? Math.round((sec / totalToday) * 100) : 0;
-    return `
-      <div class="tab-time-row">
-        <div class="tab-time-domain">${escapeHtml(domain)}</div>
-        <div class="tab-time-bar-wrap"><div class="tab-time-bar" style="width:${pct}%"></div></div>
-        <div class="tab-time-value">${humanizeSeconds(sec)}</div>
-      </div>
-    `;
-  }).join('');
-}
-
-function renderShameLog() {
-  const container = document.getElementById('shame-log-list');
-  if (!container) return;
-  const entries = state.shameLog.slice(0, 10);
-
-  // Aggregate counters
-  const aggMap = {
-    'shame-stat-disabled':  state.shameStats.extensionDisabled  || 0,
-    'shame-stat-removed':   state.shameStats.extensionRemoved   || 0,
-    'shame-stat-panic':     state.shameStats.panicButtonPresses || 0,
-    'shame-stat-emergency': state.shameStats.emergencyUnlocks   || 0,
-    'shame-stat-xp-lost':   state.shameStats.totalXpLost        || 0,
-  };
-  for (const [id, val] of Object.entries(aggMap)) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-  }
-
-  if (entries.length === 0) {
-    container.innerHTML = '<div class="shame-empty">Пока чисто. Держи стрик.</div>';
-    return;
-  }
-
-  container.innerHTML = entries.map(e => {
-    const d = new Date(e.ts);
-    const when = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-    return `
-      <div class="shame-entry">
-        <div class="shame-entry-head">
-          <span class="shame-emoji">${e.emoji || '❗'}</span>
-          <span class="shame-label">${escapeHtml(e.label || e.type)}</span>
-          <span class="shame-when">${when}</span>
-        </div>
-        ${e.notes ? `<div class="shame-notes">${escapeHtml(e.notes)}</div>` : ''}
-        <div class="shame-cost">
-          ${e.xpCost > 0 ? `<span class="shame-xp">−${e.xpCost} XP</span>` : ''}
-          ${e.streakCost > 0 ? `<span class="shame-streak">−${e.streakCost} days</span>` : ''}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// ==========================================
-// Panic Button (Confession Modal)
-// ==========================================
-//
-// "I'm giving up" button. Explicit, durable confession. Use this when
-// you're about to do something you know is wrong (disable extension,
-// binge YouTube for 3 hours) — hitting this button logs it forever
-// and costs XP + integrity days, but at least the cost is *declared*
-// instead of silently bypassed.
-//
-// The point: make the act of giving up itself expensive and visible,
-// so the user is incentivised to log it honestly instead of rationalising.
-
-function initPanicButton() {
-  const btn        = document.getElementById('panic-btn');
-  const modal      = document.getElementById('panic-modal');
-  if (!btn || !modal) return;
-  const closeBtn   = document.getElementById('close-panic-modal');
-  const cancelBtn  = document.getElementById('cancel-panic-btn');
-  const confirmBtn = document.getElementById('confirm-panic-btn');
-  const reasonEl   = document.getElementById('panic-reason');
-  const confirmEl  = document.getElementById('panic-confirm-text');
-  const costEl     = document.getElementById('panic-cost');
-
-  const PANIC_CONFIRM_PHRASE = 'СДАЮСЬ';
-  const MIN_REASON_LENGTH    = 30;
-
-  function updateConfirmState() {
-    const reasonOk   = reasonEl.value.trim().length >= MIN_REASON_LENGTH;
-    const phraseOk   = confirmEl.value.trim().toUpperCase() === PANIC_CONFIRM_PHRASE;
-    confirmBtn.disabled = !(reasonOk && phraseOk);
-  }
-
-  btn.addEventListener('click', () => {
-    reasonEl.value = '';
-    confirmEl.value = '';
-    confirmBtn.disabled = true;
-    if (costEl) {
-      costEl.innerHTML =
-        `Цена: <strong>−${SHAME_PENALTY.panic_button} XP</strong>, ` +
-        `сгорит <strong>${SHAME_STREAK_COST.panic_button} дней</strong> integrity-стрика, ` +
-        `запись навсегда останется в shame-log.`;
-    }
-    openModal('panic-modal');
-    setTimeout(() => reasonEl.focus(), 100);
-  });
-
-  reasonEl.addEventListener('input', updateConfirmState);
-  confirmEl.addEventListener('input', updateConfirmState);
-
-  confirmBtn.addEventListener('click', () => {
-    if (confirmBtn.disabled) return;
-    const reason = reasonEl.value.trim().slice(0, 500);
-    logShame('panic_button', {
-      notes: reason,
-    });
-    closeModal('panic-modal');
-  });
-
-  closeBtn.addEventListener('click',  () => closeModal('panic-modal'));
-  cancelBtn.addEventListener('click', () => closeModal('panic-modal'));
-  modal.addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeModal('panic-modal');
-  });
-}
-
-// ==========================================
-// Emergency Unlock (Willpower Escape Hatch With Price Tag)
-// ==========================================
-//
-// The official way to unlock a site when you have zero coins but *really*
-// need access. Instead of going to chrome://extensions and disabling the
-// blocker (free, silent, rewards the bad habit), you come here and pay
-// XP — and the price escalates every time you use it this week. Logged
-// in the shame-log so the cost is visible every time you open the dashboard.
-
-const EMERGENCY_BASE_XP_PER_MIN   = 10; // base rate
-const EMERGENCY_ESCALATION        = 0.5; // +50% per prior use this week
-const EMERGENCY_STREAK_PER_5_MIN  = 1;   // 1 integrity day burned per 5 min
-
-/** Reset the weekly emergency-unlock counter on Monday. */
-function checkEmergencyWeekReset() {
-  const today = new Date();
-  const monday = new Date(today);
-  const dayOfWeek = (today.getDay() + 6) % 7; // Mon=0..Sun=6
-  monday.setDate(today.getDate() - dayOfWeek);
-  const mondayStr = monday.toISOString().slice(0, 10);
-  if (state.emergencyUnlockData.weekStartDate !== mondayStr) {
-    state.emergencyUnlockData.weekStartDate = mondayStr;
-    state.emergencyUnlockData.usesThisWeek  = 0;
-    saveState();
-  }
-}
-
-/** Compute XP cost of an emergency unlock of N minutes. */
-function emergencyXpCost(minutes) {
-  checkEmergencyWeekReset();
-  const multiplier = 1 + state.emergencyUnlockData.usesThisWeek * EMERGENCY_ESCALATION;
-  return Math.ceil(EMERGENCY_BASE_XP_PER_MIN * minutes * multiplier);
-}
-
-function emergencyStreakCost(minutes) {
-  return Math.ceil(minutes / 5) * EMERGENCY_STREAK_PER_5_MIN;
-}
-
-function initEmergencyUnlock() {
-  const btn        = document.getElementById('emergency-unlock-btn');
-  const modal      = document.getElementById('emergency-modal');
-  if (!btn || !modal) return;
-  const closeBtn   = document.getElementById('close-emergency-modal');
-  const cancelBtn  = document.getElementById('cancel-emergency-btn');
-  const confirmBtn = document.getElementById('confirm-emergency-btn');
-  const siteSel    = document.getElementById('emergency-site');
-  const minsInput  = document.getElementById('emergency-minutes');
-  const costEl     = document.getElementById('emergency-cost');
-  const confirmEl  = document.getElementById('emergency-confirm-text');
-
-  const CONFIRM_PHRASE = 'МНЕ ОЧЕНЬ НАДО';
-
-  function refreshSiteOptions() {
-    const current = siteSel.value;
-    siteSel.innerHTML = state.blockedSites
-      .map(d => `<option value="${escapeHtml(d)}"${d === current ? ' selected' : ''}>${escapeHtml(d)}</option>`)
-      .join('');
-  }
-
-  function updateCostDisplay() {
-    const mins = Math.max(1, parseInt(minsInput.value, 10) || 1);
-    const xpCost     = emergencyXpCost(mins);
-    const streakCost = emergencyStreakCost(mins);
-    checkEmergencyWeekReset();
-    const weekUses = state.emergencyUnlockData.usesThisWeek;
-    const multiplier = 1 + weekUses * EMERGENCY_ESCALATION;
-    if (costEl) {
-      costEl.innerHTML = `
-        <div class="emergency-cost-line">
-          <strong>−${xpCost} XP</strong>
-          <span class="emergency-cost-sub">(${EMERGENCY_BASE_XP_PER_MIN} × ${mins} мин × ${multiplier.toFixed(1)})</span>
-        </div>
-        <div class="emergency-cost-line">
-          <strong>−${streakCost} integrity days</strong>
-        </div>
-        <div class="emergency-cost-note">
-          Использований на этой неделе: <strong>${weekUses}</strong>. Каждое следующее <strong>+50% к цене</strong>.
-        </div>
-      `;
-    }
-  }
-
-  function updateConfirmState() {
-    const phraseOk = confirmEl.value.trim().toUpperCase() === CONFIRM_PHRASE;
-    confirmBtn.disabled = !phraseOk;
-  }
-
-  btn.addEventListener('click', () => {
-    if (state.blockedSites.length === 0) {
-      showToast('Нет заблокированных сайтов', 'info');
-      return;
-    }
-    minsInput.value = '10';
-    confirmEl.value = '';
-    confirmBtn.disabled = true;
-    refreshSiteOptions();
-    updateCostDisplay();
-    openModal('emergency-modal');
-    setTimeout(() => minsInput.focus(), 100);
-  });
-
-  minsInput.addEventListener('input', updateCostDisplay);
-  siteSel.addEventListener('change',  updateCostDisplay);
-  confirmEl.addEventListener('input', updateConfirmState);
-
-  confirmBtn.addEventListener('click', () => {
-    if (confirmBtn.disabled) return;
-    const domain  = siteSel.value;
-    const minutes = Math.max(1, Math.min(120, parseInt(minsInput.value, 10) || 1));
-    if (!domain) return;
-
-    const xpCost     = emergencyXpCost(minutes);
-    const streakCost = emergencyStreakCost(minutes);
-
-    // Increment the counter BEFORE logging so next call will see a higher price
-    state.emergencyUnlockData.usesTotal     += 1;
-    state.emergencyUnlockData.usesThisWeek  += 1;
-    state.emergencyUnlockData.lastUsedDate  = todayStr();
-
-    // Log to shame log with explicit cost
-    logShame('emergency_unlock', {
-      xpCost,
-      streakCost,
-      label: `🆘 ${domain} на ${minutes} мин`,
-      notes: `Недельная цена: ${xpCost} XP. Использование #${state.emergencyUnlockData.usesThisWeek} на этой неделе.`,
-    });
-
-    // Actually start the unlock timer (uses existing reward-timer pipeline)
-    startTimer(`🆘 Emergency unlock`, '🆘', minutes, domain);
-
-    closeModal('emergency-modal');
-  });
-
-  closeBtn.addEventListener('click',  () => closeModal('emergency-modal'));
-  cancelBtn.addEventListener('click', () => closeModal('emergency-modal'));
-  modal.addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeModal('emergency-modal');
   });
 }
 
@@ -5228,7 +4712,6 @@ window.addEventListener('message', event => {
 
   switch (type) {
     case 'QUESTLIFE_PONG':
-      noteExtensionHeartbeat();
       if (!extensionConnected) {
         extensionConnected = true;
         updateExtensionStatus(true);
@@ -5604,12 +5087,9 @@ function init() {
   pomodoroRehydrate();
   initCheatPenaltyModal();
   initStreakResetModal();
-  // Self-binding / anti-akrasia mechanics
-  initPanicButton();
-  initEmergencyUnlock();
-  initEveningReflection();  // Must run BEFORE initMorningIntentions so the
-                            // reflection exposer is wired before the morning
-                            // auto-open logic potentially overlaps.
+  // Daily self-binding rituals (reflection exposer wired before the morning
+  // auto-open logic so their open/close handlers don't collide).
+  initEveningReflection();
   initMorningIntentions();
   checkDreamPenalties();
   initDreamModal();
@@ -5621,18 +5101,21 @@ function init() {
   renderBlockedSites();
   initBlockedSitesUI();
   updateExtensionStatus(false);   // default: not connected until PONG
-  // Check if the user just uninstalled the extension (and Chrome redirected
-  // them here via setUninstallURL). If so, log a shame event first — before
-  // any PONG arrives from a freshly-reinstalled extension.
-  checkExtensionRemovedFlag();
+  // Strip any stale ?extension_removed=1 from the URL left behind by the old
+  // shame-log mechanic so it doesn't keep showing up after the rollback.
+  try {
+    const _u = new URL(location.href);
+    if (_u.searchParams.has('extension_removed')) {
+      _u.searchParams.delete('extension_removed');
+      history.replaceState(null, '', _u.pathname + (_u.search ? _u.search : '') + _u.hash);
+    }
+  } catch (_) {}
   // Ping the extension — the content script will reply with QUESTLIFE_PONG
   extensionSendMessage({ type: 'QUESTLIFE_PING' });
   // If pong doesn't arrive within 1 second, assume extension is absent
   setTimeout(() => {
     if (!extensionConnected) updateExtensionStatus(false);
   }, 1000);
-  // Start the heartbeat watchdog so we can detect a mid-session disable.
-  startExtensionHeartbeat();
 
   // Restore persisted timers and start the tick loop if any are active
   if (state.activeTimers.length > 0) {
@@ -5735,7 +5218,7 @@ const ALL_MODAL_IDS = [
   'task-modal', 'reward-modal', 'daily-modal', 'reset-modal',
   'cheat-penalty-modal', 'streak-reset-modal', 'dream-modal',
   'shortcuts-modal', 'focus-modal',
-  'panic-modal', 'emergency-modal', 'morning-modal', 'reflection-modal',
+  'morning-modal', 'reflection-modal',
 ];
 
 /** True if any modal overlay is currently open */

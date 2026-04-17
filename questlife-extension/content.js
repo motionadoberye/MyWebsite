@@ -23,7 +23,6 @@
     'QUESTLIFE_SET_REMINDERS',
     'QUESTLIFE_GET_TAB_TIME',
     'QUESTLIFE_RESET_TAB_TIME',
-    'QUESTLIFE_SET_UNINSTALL_URL',
   ]);
 
   window.addEventListener('message', event => {
