@@ -25,26 +25,6 @@ const BLOCKED_PAGE_URL = chrome.runtime.getURL('blocked.html');
 /** Rule ID base for dynamic blocking rules (one rule per domain) */
 const RULE_ID_BASE = 1000;
 
-/**
- * Where to redirect the user when they uninstall the extension.
- * The site checks for `?extension_removed=1` on load and applies a
- * self-binding penalty (logs it to the shame log, resets integrity streak).
- *
- * Override by writing a different URL to chrome.storage.local.uninstallUrl.
- */
-const DEFAULT_UNINSTALL_URL = 'https://mywebsiteuhh.me/?extension_removed=1';
-
-/** Configure the "open on uninstall" redirect. Called during init. */
-async function configureUninstallUrl() {
-  try {
-    const custom = await storageGet('uninstallUrl', null);
-    const url = (typeof custom === 'string' && custom.length > 0) ? custom : DEFAULT_UNINSTALL_URL;
-    if (typeof chrome.runtime.setUninstallURL === 'function') {
-      chrome.runtime.setUninstallURL(url);
-    }
-  } catch (_) { /* non-fatal */ }
-}
-
 // ──────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────
@@ -697,17 +677,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       }
 
-      case 'QUESTLIFE_SET_UNINSTALL_URL': {
-        // Site can override the URL the extension opens when uninstalled.
-        const url = (message.data && message.data.url) || DEFAULT_UNINSTALL_URL;
-        await storageSet({ uninstallUrl: url });
-        if (typeof chrome.runtime.setUninstallURL === 'function') {
-          chrome.runtime.setUninstallURL(url);
-        }
-        sendResponse({ ok: true });
-        break;
-      }
-
       // ── Queries from popup ──
 
       case 'GET_STATE':
@@ -811,16 +780,11 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (settings && settings.enabled) {
     await scheduleDailyReminder(settings);
   }
-
-  // Configure the "open this URL on uninstall" redirect so the site can
-  // log a shame event when the user removes the extension.
-  await configureUninstallUrl();
 });
 
 /** Re-apply blocking rules when the service worker restarts */
 chrome.runtime.onStartup.addListener(async () => {
   await rebuildBlockingRules();
-  await configureUninstallUrl();
   // Recreate recurring overtime alarm if it's gone
   const existing = await new Promise(resolve => chrome.alarms.get('overtime_check', resolve));
   if (!existing) {
