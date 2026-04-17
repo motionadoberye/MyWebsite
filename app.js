@@ -1645,6 +1645,58 @@ function renderDifficultyBreakdown() {
   document.getElementById('difficulty-breakdown').innerHTML = html;
 }
 
+// ──────────────────────────────────────────
+// Tab-time tracker (consumed from extension)
+// ──────────────────────────────────────────
+
+function humanizeSeconds(s) {
+  if (!s || s < 60) return `${s || 0}с`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}ч ${rm}м` : `${h}ч`;
+}
+
+function updateTabTimeTrackerFromExtension(tracker) {
+  if (!tracker || typeof tracker !== 'object') return;
+  state.tabTimeTracker.date         = tracker.date || todayStr();
+  state.tabTimeTracker.today        = tracker.today || {};
+  state.tabTimeTracker.totalAllTime = tracker.totalAllTime || 0;
+  try { localStorage.setItem('qm_tabTimeTracker', JSON.stringify(state.tabTimeTracker)); }
+  catch (_) {}
+  renderTabTimeCard();
+}
+
+function renderTabTimeCard() {
+  const container = document.getElementById('tab-time-breakdown');
+  if (!container) return;
+  const totalToday = Object.values(state.tabTimeTracker.today || {})
+    .reduce((a, b) => a + b, 0);
+  const entries = Object.entries(state.tabTimeTracker.today || {})
+    .sort((a, b) => b[1] - a[1]);
+
+  const totalTodayEl = document.getElementById('tab-time-total-today');
+  const totalAllEl   = document.getElementById('tab-time-total-all');
+  if (totalTodayEl) totalTodayEl.textContent = humanizeSeconds(totalToday);
+  if (totalAllEl)   totalAllEl.textContent   = humanizeSeconds(state.tabTimeTracker.totalAllTime || 0);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="tab-time-intro">Сегодня ты ещё не тратил время на разблок-сайтах. Так держать!</div>';
+    return;
+  }
+  container.innerHTML = entries.map(([domain, sec]) => {
+    const pct = totalToday > 0 ? Math.round((sec / totalToday) * 100) : 0;
+    return `
+      <div class="tab-time-row">
+        <div class="tab-time-domain">${escapeHtml(domain)}</div>
+        <div class="tab-time-bar-wrap"><div class="tab-time-bar" style="width:${pct}%"></div></div>
+        <div class="tab-time-value">${humanizeSeconds(sec)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 // ==========================================
 // Pomodoro / Focus Timer
 // ==========================================
