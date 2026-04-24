@@ -43,16 +43,6 @@ async function storageSet(data) {
   return new Promise(resolve => chrome.storage.local.set(data, resolve));
 }
 
-/**
- * Build a stable, deterministic rule ID for a given domain.
- * We use RULE_ID_BASE + index in the blocked list.
- * This avoids collisions with static rules (which start at 1).
- */
-function ruleIdForDomain(domain, allDomains) {
-  const idx = allDomains.indexOf(domain);
-  return idx === -1 ? null : RULE_ID_BASE + idx;
-}
-
 // ──────────────────────────────────────────
 // Blocking rules management
 // ──────────────────────────────────────────
@@ -439,7 +429,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   } catch (_) { /* tab gone */ }
 });
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (changeInfo.url && tabId === tabTimeState.focusedTabId) {
     await startTabTimeSession(tabId, changeInfo.url);
   }

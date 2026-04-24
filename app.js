@@ -404,7 +404,7 @@ function recalcStreak() {
   // If no tasks today yet, start counting from yesterday
   if (!hasToday) d.setDate(d.getDate() - 1);
 
-  while (true) {
+  for (;;) {
     const y   = d.getFullYear();
     const m   = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -4157,7 +4157,7 @@ function resetDreamForm() {
   document.getElementById('dream-bonus-coins').value   = '';
   document.getElementById('dream-bonus-custom').value  = '';
   document.getElementById('dream-penalty-coins').value = '';
-  document.querySelectorAll('.dream-emoji-btn').forEach((b, i) =>
+  document.querySelectorAll('.dream-emoji-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.emoji === '🌟'));
   document.querySelectorAll('.dream-preset-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('dream-timer-section').style.display       = 'none';
@@ -4545,11 +4545,10 @@ function initResetModal() {
 // Morning Intentions (Daily Self-Binding Ritual)
 // ==========================================
 //
-// On the first load of each new day, force the user to write down 3
+// On the first load of each new day, prompt the user to write down 3
 // concrete intentions for the day and pick a site they commit NOT to
-// waste time on. Modal has no close button — it's a ritual, not an
-// optional form. Once the intentions are recorded the rest of the UI
-// unlocks.
+// waste time on. They can defer it, but saving intentions records the
+// ritual for the day.
 
 function initMorningIntentions() {
   const modal = document.getElementById('morning-modal');

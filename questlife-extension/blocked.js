@@ -56,7 +56,6 @@ function escHtml(str) {
 
 async function init() {
   const domain   = getParam('domain') || 'этот сайт';
-  const overtime = getParam('overtime') === '1';
 
   // Domain label
   document.getElementById('domain-label').textContent = domain;

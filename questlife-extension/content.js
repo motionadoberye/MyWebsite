@@ -46,7 +46,7 @@
   // Listen for messages from background.js and forward them to the page
   // via window.postMessage so the site's JS can react.
 
-  chrome.runtime.onMessage.addListener((message, _sender) => {
+  chrome.runtime.onMessage.addListener(message => {
     if (message._from !== 'background') return;
     // Relay to the page
     window.postMessage({ ...message, _from: 'questlife_extension' }, '*');
