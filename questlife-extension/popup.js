@@ -34,8 +34,6 @@ function getRemainingSeconds(timer) {
 
 // ── Render ────────────────────────────────────────────────────────────
 
-let cachedState = null;
-
 function renderTimers(timers) {
   const list = $('timers-list');
 
@@ -146,7 +144,6 @@ function escHtml(str) {
 async function refresh() {
   try {
     const state = await sendBg('GET_STATE');
-    cachedState = state;
     renderTimers(state.activeTimers || []);
     renderSites(state.blockedSites || [], state.activeTimers || []);
     renderStats(state.questLifeStats);
