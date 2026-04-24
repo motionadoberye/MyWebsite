@@ -548,6 +548,100 @@ body {
 
 .reward-actions { display: flex; gap: 0.5rem; justify-content: center; }
 
+/* Daily gift */
+.daily-gift-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 1rem;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.16), rgba(124, 58, 237, 0.12));
+  border: 1px solid rgba(251, 191, 36, 0.34);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
+}
+
+.daily-gift-panel.claimed {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.daily-gift-main {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.daily-gift-icon {
+  flex: 0 0 auto;
+  width: 3rem;
+  height: 3rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: rgba(251, 191, 36, 0.16);
+  font-size: 1.65rem;
+}
+
+.daily-gift-copy { min-width: 0; }
+
+.daily-gift-kicker {
+  color: var(--coin-color);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.daily-gift-title {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 800;
+  margin-top: 0.15rem;
+}
+
+.daily-gift-subtitle {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-top: 0.25rem;
+}
+
+.daily-gift-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.daily-gift-odds {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  max-width: 24rem;
+}
+
+.daily-gift-odd {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.22rem 0.48rem;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.daily-gift-odd-legendary { color: #facc15; border-color: rgba(250, 204, 21, 0.42); }
+.daily-gift-odd-rare      { color: #a78bfa; border-color: rgba(167, 139, 250, 0.42); }
+.daily-gift-odd-uncommon  { color: #34d399; border-color: rgba(52, 211, 153, 0.42); }
+
+.daily-gift-btn {
+  min-width: 6.5rem;
+  white-space: nowrap;
+}
+
 /* Purchased history row */
 .purchased-item {
   background: var(--bg-card);
@@ -951,8 +1045,17 @@ body {
 @media (max-width: 600px) {
   .header-title { display: none; }
   .xp-container { min-width: 60px; }
+  .nav-inner { max-width: 100%; overflow-x: auto; }
+  .nav-tab { flex: 0 0 auto; min-width: 5.6rem; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .rewards-grid { grid-template-columns: 1fr 1fr; }
+  .daily-gift-panel,
+  .daily-gift-side {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .daily-gift-odds { justify-content: flex-start; max-width: none; }
+  .daily-gift-btn { width: 100%; }
   .task-item { padding: 0.875rem 1rem; }
 }
 

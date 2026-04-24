@@ -31,6 +31,14 @@ const DEFAULT_REWARDS = [
   { id: 'r-default-3', title: 'Новая игра',   emoji: '🎮', price: 200, timerMinutes: null },
 ];
 
+/** Daily free gift gacha table. Chances must add up to 100. */
+const DAILY_GIFT_REWARDS = [
+  { coins: 100, chance: 1,  tier: 'legendary', label: 'Джекпот' },
+  { coins: 40,  chance: 10, tier: 'rare',      label: 'Редкий' },
+  { coins: 20,  chance: 30, tier: 'uncommon',  label: 'Хороший' },
+  { coins: 5,   chance: 59, tier: 'common',    label: 'Обычный' },
+];
+
 /** Colors for category breakdown bars */
 const CATEGORY_COLORS = {
   work:     'var(--accent-purple)',
@@ -122,6 +130,12 @@ let state = {
   dailyDiscountData: {
     lastPurchaseDate: null,  // 'YYYY-MM-DD' of the last first-of-day purchase
     usedToday:        false, // whether today's discount has been used
+  },
+  // ── Daily Free Gift ──
+  dailyGiftData: {
+    lastClaimDate: null,  // 'YYYY-MM-DD' of the last claimed daily gift
+    lastReward:    null,  // { coins, chance, tier, label, claimedAt }
+    history:       [],    // latest gift rolls, newest first
   },
   // ── Daily Credit Limit ──
   creditData: {
@@ -215,6 +229,7 @@ function saveState() {
   localStorage.setItem('qm_dreamStats',      JSON.stringify(state.dreamStats));
   localStorage.setItem('qm_blockedSites',    JSON.stringify(state.blockedSites));
   localStorage.setItem('qm_dailyDiscountData', JSON.stringify(state.dailyDiscountData));
+  localStorage.setItem('qm_dailyGiftData',   JSON.stringify(state.dailyGiftData));
   localStorage.setItem('qm_creditData',      JSON.stringify(state.creditData));
   localStorage.setItem('qm_achievements',    JSON.stringify(state.achievements));
   localStorage.setItem('qm_pomodoroStats',   JSON.stringify(state.pomodoroStats));
@@ -276,6 +291,16 @@ function loadState() {
   // Load daily discount data (backward-compatible)
   const savedDailyDiscount = parse('qm_dailyDiscountData', null);
   if (savedDailyDiscount) state.dailyDiscountData = { ...state.dailyDiscountData, ...savedDailyDiscount };
+
+  // Load daily gift data (backward-compatible)
+  const savedDailyGift = parse('qm_dailyGiftData', null);
+  if (savedDailyGift) {
+    state.dailyGiftData = {
+      ...state.dailyGiftData,
+      ...savedDailyGift,
+      history: Array.isArray(savedDailyGift.history) ? savedDailyGift.history : [],
+    };
+  }
 
   // Load daily credit limit data (backward-compatible)
   const savedCreditData = parse('qm_creditData', null);
@@ -862,6 +887,59 @@ function checkDailyDiscountReset() {
   }
 }
 
+/** Returns true if today's free gift has not been claimed yet. */
+function isDailyGiftAvailable() {
+  return state.dailyGiftData.lastClaimDate !== todayStr();
+}
+
+/** Pick one daily gift reward from the weighted gacha table. */
+function rollDailyGiftReward() {
+  const totalChance = DAILY_GIFT_REWARDS.reduce((sum, item) => sum + item.chance, 0);
+  let roll = Math.random() * totalChance;
+
+  for (const reward of DAILY_GIFT_REWARDS) {
+    roll -= reward.chance;
+    if (roll < 0) return reward;
+  }
+
+  return DAILY_GIFT_REWARDS[DAILY_GIFT_REWARDS.length - 1];
+}
+
+/** Claim today's free gift and add the rolled coins to the account. */
+function claimDailyGift() {
+  if (!isDailyGiftAvailable()) {
+    showToast('🎁 Сегодняшний подарок уже забран', 'info');
+    return;
+  }
+
+  const reward = rollDailyGiftReward();
+  const previousCoins = state.userStats.coins;
+  const claimedAt = new Date().toISOString();
+  const claim = {
+    coins: reward.coins,
+    chance: reward.chance,
+    tier: reward.tier,
+    label: reward.label,
+    claimedAt,
+  };
+
+  state.userStats.coins += reward.coins;
+  state.userStats.totalCoinsEarned += reward.coins;
+  state.dailyGiftData.lastClaimDate = todayStr();
+  state.dailyGiftData.lastReward = claim;
+  state.dailyGiftData.history.unshift({ date: todayStr(), ...claim });
+  if (state.dailyGiftData.history.length > 14) state.dailyGiftData.history.length = 14;
+
+  saveState();
+  updateHeader();
+  updateDebtWarning();
+  renderDailyGift();
+  checkDebtPayoff(previousCoins);
+  renderImpact();
+  checkAchievements();
+  showToast(`🎁 ${reward.label}: +${reward.coins} 🪙`, reward.tier === 'legendary' ? 'success' : 'info');
+}
+
 // ── Daily Credit Limit ──
 const DAILY_CREDIT_LIMIT = 3;
 
@@ -1138,6 +1216,7 @@ function updateCompletedCount() {
 
 function renderRewards() {
   const container = document.getElementById('rewards-list');
+  renderDailyGift();
 
   if (state.rewards.length === 0) {
     container.innerHTML = `
@@ -1219,6 +1298,42 @@ function renderRewards() {
   updateInflationBanner();
   updateDebtWarning();
   updateDailyDiscountBanner();
+}
+
+function renderDailyGift() {
+  const panel = document.getElementById('daily-gift-panel');
+  if (!panel) return;
+
+  const available = isDailyGiftAvailable();
+  const last = state.dailyGiftData.lastReward;
+  const oddsHtml = DAILY_GIFT_REWARDS.map(reward => `
+    <span class="daily-gift-odd daily-gift-odd-${reward.tier}">
+      ${reward.chance}% · +${reward.coins} 🪙
+    </span>`).join('');
+
+  panel.classList.toggle('claimed', !available);
+  panel.innerHTML = `
+    <div class="daily-gift-main">
+      <div class="daily-gift-icon">${available ? '🎁' : '✅'}</div>
+      <div class="daily-gift-copy">
+        <div class="daily-gift-kicker">Ежедневный подарок</div>
+        <div class="daily-gift-title">${available ? 'Бесплатный лут готов' : 'Подарок на сегодня забран'}</div>
+        <div class="daily-gift-subtitle">
+          ${available
+            ? 'Один ролл в день. Шанс на джекпот — 1%.'
+            : `Сегодня выпало: +${escapeHtml(last?.coins ?? 0)} 🪙 (${escapeHtml(last?.label || 'подарок')})`}
+        </div>
+      </div>
+    </div>
+    <div class="daily-gift-side">
+      <div class="daily-gift-odds">${oddsHtml}</div>
+      <button class="btn btn-primary daily-gift-btn" id="claim-daily-gift-btn" ${available ? '' : 'disabled'}>
+        ${available ? 'Лутнуть' : 'Забрано'}
+      </button>
+    </div>`;
+
+  const btn = document.getElementById('claim-daily-gift-btn');
+  if (btn) btn.addEventListener('click', claimDailyGift);
 }
 
 function renderPurchasedRewards() {
@@ -4314,7 +4429,7 @@ const EXPORTABLE_KEYS = [
   'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats',
   'qm_activeTimers', 'qm_inflationData', 'qm_integrityData', 'qm_debtStats',
   'qm_timerStats', 'qm_dreams', 'qm_completedDreams', 'qm_dreamStats',
-  'qm_blockedSites', 'qm_dailyDiscountData', 'qm_creditData',
+  'qm_blockedSites', 'qm_dailyDiscountData', 'qm_dailyGiftData', 'qm_creditData',
   'qm_achievements', 'qm_pomodoroStats',
   'qm_notificationsEnabled', 'qm_reminderSettings',
   'qm_pomodoroSettings', 'qm_pomodoroRuntime',
