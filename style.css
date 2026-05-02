@@ -1056,6 +1056,8 @@ body {
   }
   .daily-gift-odds { justify-content: flex-start; max-width: none; }
   .daily-gift-btn { width: 100%; }
+  .pc-app-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .pc-app-bar-wrap { grid-column: 1 / -1; }
   .task-item { padding: 0.875rem 1rem; }
 }
 
@@ -2709,6 +2711,130 @@ kbd {
 .tab-time-value {
   font-size: 0.78rem;
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 60px;
+  text-align: right;
+}
+
+/* ==========================================
+   PC App Time Tracker
+   ========================================== */
+.pc-app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.pc-app-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.pc-app-totals {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.pc-app-totals strong {
+  color: var(--accent-green-light);
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-app-status {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.pc-app-status.online {
+  color: var(--accent-green-light);
+  border-color: rgba(16, 185, 129, 0.42);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.pc-app-status.offline {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pc-app-active,
+.pc-app-empty {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0.3rem 0 1rem;
+}
+
+.pc-app-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pc-app-row {
+  display: grid;
+  grid-template-columns: minmax(0, 170px) 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.pc-app-name {
+  min-width: 0;
+}
+
+.pc-app-name span,
+.pc-app-name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pc-app-name span {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pc-app-name small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  margin-top: 0.08rem;
+}
+
+.pc-app-bar-wrap {
+  height: 8px;
+  background: var(--bg-card-hover);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.pc-app-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-green), var(--accent-purple));
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.pc-app-row.tracked .pc-app-bar {
+  background: linear-gradient(90deg, var(--accent-orange), var(--accent-red));
+}
+
+.pc-app-value {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   min-width: 60px;
   text-align: right;

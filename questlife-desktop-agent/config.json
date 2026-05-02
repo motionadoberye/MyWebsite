@@ -1,0 +1,19 @@
+{
+  "port": 17321,
+  "pollIntervalMs": 1000,
+  "trackedApps": [
+    { "process": "steam.exe", "label": "Steam", "category": "games" },
+    { "process": "steamwebhelper.exe", "label": "Steam", "category": "games" },
+    { "process": "epicgameslauncher.exe", "label": "Epic Games", "category": "games" },
+    { "process": "riotclientservices.exe", "label": "Riot Client", "category": "games" },
+    { "process": "valorant-win64-shipping.exe", "label": "Valorant", "category": "games" },
+    { "process": "cs2.exe", "label": "Counter-Strike 2", "category": "games" },
+    { "process": "dota2.exe", "label": "Dota 2", "category": "games" },
+    { "process": "fortniteclient-win64-shipping.exe", "label": "Fortnite", "category": "games" },
+    { "process": "minecraftlauncher.exe", "label": "Minecraft Launcher", "category": "games" },
+    { "process": "javaw.exe", "label": "Minecraft / Java", "category": "games" },
+    { "process": "robloxplayerbeta.exe", "label": "Roblox", "category": "games" },
+    { "process": "discord.exe", "label": "Discord", "category": "social" },
+    { "process": "telegram.exe", "label": "Telegram", "category": "social" }
+  ]
+}

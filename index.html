@@ -68,6 +68,10 @@
         <span class="nav-icon">📊</span>
         <span>Impact</span>
       </button>
+      <button class="nav-tab" data-tab="apps">
+        <span class="nav-icon">🖥️</span>
+        <span>Apps</span>
+      </button>
       <button class="nav-tab" data-tab="daily">
         <span class="nav-icon">📅</span>
         <span>Daily</span>
@@ -375,6 +379,42 @@
         <div class="danger-zone-title">⚠️ Danger Zone</div>
         <div class="danger-zone-desc">Irreversible action — all progress, tasks, rewards and statistics will be permanently deleted.</div>
         <button class="btn btn-danger-filled" id="reset-progress-btn">🗑️ Reset All Progress</button>
+      </div>
+    </section>
+
+    <!-- APPS SECTION -->
+    <section class="section" id="section-apps">
+      <div class="section-header">
+        <h2 class="section-title">🖥️ Время в приложениях</h2>
+        <button class="btn btn-ghost btn-sm" id="pc-app-refresh-btn">Проверить</button>
+      </div>
+
+      <div class="pc-app-overview">
+        <div class="stat-card">
+          <div class="stat-icon">🔌</div>
+          <div class="stat-value"><span id="pc-app-status" class="pc-app-status offline">Offline</span></div>
+          <div class="stat-label">Agent Status</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🎮</div>
+          <div class="stat-value" id="pc-app-tracked-total">0с</div>
+          <div class="stat-label">Tracked Apps Today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏱️</div>
+          <div class="stat-value" id="pc-app-total">0с</div>
+          <div class="stat-label">Total App Time</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
+        <div class="pc-app-header">
+          <h3 class="card-title" style="margin-bottom:0;">Активность сегодня</h3>
+          <div class="pc-app-totals">
+            <span id="pc-app-active">Нет данных</span>
+          </div>
+        </div>
+        <div id="pc-app-breakdown" class="pc-app-breakdown"></div>
       </div>
     </section>
 
@@ -724,14 +764,16 @@
           <div class="shortcut-row"><kbd>1</kbd><span>Quests</span></div>
           <div class="shortcut-row"><kbd>2</kbd><span>Rewards</span></div>
           <div class="shortcut-row"><kbd>3</kbd> <span>(или <kbd>D</kbd>)</span><span>Dashboard (Impact)</span></div>
-          <div class="shortcut-row"><kbd>4</kbd> <span>(или <kbd>L</kbd>)</span><span>Daily</span></div>
-          <div class="shortcut-row"><kbd>5</kbd> <span>(или <kbd>M</kbd>)</span><span>Dreams</span></div>
+          <div class="shortcut-row"><kbd>4</kbd> <span>(или <kbd>A</kbd>)</span><span>Apps</span></div>
+          <div class="shortcut-row"><kbd>5</kbd> <span>(или <kbd>L</kbd>)</span><span>Daily</span></div>
+          <div class="shortcut-row"><kbd>6</kbd> <span>(или <kbd>M</kbd>)</span><span>Dreams</span></div>
 
           <div class="shortcut-group-title">Действия</div>
           <div class="shortcut-row"><kbd>N</kbd><span>Создать новое (по текущей вкладке)</span></div>
           <div class="shortcut-row"><kbd>F</kbd><span>Focus / Pomodoro</span></div>
           <div class="shortcut-row"><kbd>Q</kbd><span>Быстро в Quests</span></div>
           <div class="shortcut-row"><kbd>R</kbd><span>Быстро в Rewards</span></div>
+          <div class="shortcut-row"><kbd>A</kbd><span>Быстро в Apps</span></div>
 
           <div class="shortcut-group-title">Интерфейс</div>
           <div class="shortcut-row"><kbd>Esc</kbd><span>Закрыть окно</span></div>

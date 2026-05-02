@@ -60,6 +60,8 @@ const DIFFICULTY_COLORS = {
 const DEBT_PAYOFF_XP_BONUS = 10;   // XP awarded when balance crosses from negative to zero
 const INFLATION_INCREMENT  = 0.5;  // Price multiplier added per cheat-penalty press
 const MS_PER_DAY           = 86400000; // Milliseconds in one day
+const PC_APP_TRACKER_URL   = 'http://127.0.0.1:17321/stats';
+const PC_APP_TRACKER_POLL_MS = 5000;
 
 // ==========================================
 // Application State
@@ -202,6 +204,19 @@ let state = {
     today: {},              // { "youtube.com": 1800, ... } seconds
     date:  null,            // 'YYYY-MM-DD' of the `today` snapshot
     totalAllTime: 0,        // cumulative seconds across all days
+  },
+  // ── Desktop app tracker (reported by the local Windows companion) ──
+  pcAppTracker: {
+    connected:      false,
+    date:           null,
+    active:         null,
+    apps:           {},     // { "steam.exe": { seconds, label, category, ... } }
+    categories:     {},     // { games: 3600, ... }
+    totalSeconds:   0,
+    trackedSeconds: 0,
+    top:            [],
+    lastSeenAt:     null,
+    error:          null,
   },
 };
 
@@ -1812,6 +1827,122 @@ function renderTabTimeCard() {
   }).join('');
 }
 
+let pcAppTrackerPollHandle = null;
+
+function normalizePcAppTrackerPayload(payload) {
+  const today = payload && payload.today ? payload.today : {};
+  const apps = today.apps || payload?.apps || {};
+  const top = Array.isArray(payload?.top)
+    ? payload.top
+    : Object.entries(apps).map(([process, data]) => ({
+        process,
+        label: data.label || process,
+        category: data.category || 'other',
+        seconds: data.seconds || 0,
+        isTracked: !!data.isTracked,
+      })).sort((a, b) => b.seconds - a.seconds);
+
+  return {
+    connected:      true,
+    date:           payload?.date || today.date || todayStr(),
+    active:         payload?.active || null,
+    apps,
+    categories:     today.categories || payload?.categories || {},
+    totalSeconds:   Number(today.totalSeconds || payload?.totalSeconds || 0),
+    trackedSeconds: Number(today.trackedSeconds || payload?.trackedSeconds || 0),
+    top,
+    lastSeenAt:     Date.now(),
+    error:          null,
+  };
+}
+
+async function refreshPcAppTracker() {
+  try {
+    const res = await fetch(PC_APP_TRACKER_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const payload = await res.json();
+    state.pcAppTracker = normalizePcAppTrackerPayload(payload);
+  } catch (err) {
+    state.pcAppTracker = {
+      ...state.pcAppTracker,
+      connected: false,
+      active: null,
+      error: err && err.message ? err.message : 'offline',
+    };
+  }
+  renderPcAppTrackerCard();
+}
+
+function initPcAppTracker() {
+  const btn = document.getElementById('pc-app-refresh-btn');
+  if (btn) btn.addEventListener('click', refreshPcAppTracker);
+  renderPcAppTrackerCard();
+  refreshPcAppTracker();
+  if (!pcAppTrackerPollHandle) {
+    pcAppTrackerPollHandle = setInterval(refreshPcAppTracker, PC_APP_TRACKER_POLL_MS);
+  }
+}
+
+function renderPcAppTrackerCard() {
+  const tracker = state.pcAppTracker;
+  const statusEl = document.getElementById('pc-app-status');
+  const totalEl = document.getElementById('pc-app-total');
+  const trackedEl = document.getElementById('pc-app-tracked-total');
+  const activeEl = document.getElementById('pc-app-active');
+  const container = document.getElementById('pc-app-breakdown');
+  if (!container) return;
+
+  if (statusEl) {
+    statusEl.textContent = tracker.connected ? 'Online' : 'Offline';
+    statusEl.className = `pc-app-status ${tracker.connected ? 'online' : 'offline'}`;
+  }
+  if (totalEl) totalEl.textContent = humanizeSeconds(tracker.totalSeconds || 0);
+  if (trackedEl) trackedEl.textContent = humanizeSeconds(tracker.trackedSeconds || 0);
+
+  if (!tracker.connected) {
+    if (activeEl) activeEl.textContent = 'Desktop agent offline';
+    container.innerHTML = '<div class="pc-app-empty">Нет подключения к локальному Windows agent.</div>';
+    return;
+  }
+
+  if (tracker.active) {
+    const activeName = tracker.active.label || tracker.active.process || 'Unknown';
+    const activeCategory = tracker.active.category ? ` · ${tracker.active.category}` : '';
+    if (activeEl) activeEl.textContent = `Сейчас: ${activeName}${activeCategory}`;
+  } else if (activeEl) {
+    activeEl.textContent = 'Сейчас: нет активного окна';
+  }
+
+  const entries = (tracker.top || [])
+    .filter(item => Number(item.seconds) > 0)
+    .slice(0, 8);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="pc-app-empty">Сегодня ещё нет времени в приложениях.</div>';
+    return;
+  }
+
+  const maxSeconds = Math.max(...entries.map(item => Number(item.seconds) || 0), 1);
+  container.innerHTML = entries.map(item => {
+    const seconds = Number(item.seconds) || 0;
+    const pct = Math.max(2, Math.round((seconds / maxSeconds) * 100));
+    const label = item.label || item.process || 'Unknown';
+    const process = item.process && item.process !== label ? ` · ${item.process}` : '';
+    const category = item.category || 'other';
+    const trackedClass = item.isTracked ? ' tracked' : '';
+    return `
+      <div class="pc-app-row${trackedClass}">
+        <div class="pc-app-name">
+          <span>${escapeHtml(label)}</span>
+          <small>${escapeHtml(category)}${escapeHtml(process)}</small>
+        </div>
+        <div class="pc-app-bar-wrap"><div class="pc-app-bar" style="width:${pct}%"></div></div>
+        <div class="pc-app-value">${humanizeSeconds(seconds)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 // ==========================================
 // Pomodoro / Focus Timer
 // ==========================================
@@ -3052,6 +3183,7 @@ function switchTab(target) {
 
   // Refresh data each time the tab is opened
   if (target === 'impact') renderImpact();
+  if (target === 'apps')   renderPcAppTrackerCard();
   if (target === 'daily')  { renderDailyTasks(); updateDailyProgress(); }
   if (target === 'dreams') { renderDreams(); renderAchievedDreams(); updateAchievedDreamsCount(); }
 }
@@ -5256,6 +5388,7 @@ function init() {
   initResetModal();
   initDataManagement();
   initNotificationsSettings();
+  initPcAppTracker();
   initPomodoroModal();
   // Restore any in-flight Pomodoro session (must run AFTER initPomodoroModal
   // so the modal DOM is wired up and renderPomodoro() can target it).
@@ -5456,8 +5589,8 @@ function initKeyboardShortcuts() {
 
     const key = e.key;
 
-    // Tab navigation: 1–5
-    const tabByDigit = { '1': 'quests', '2': 'rewards', '3': 'impact', '4': 'daily', '5': 'dreams' };
+    // Tab navigation: 1–6
+    const tabByDigit = { '1': 'quests', '2': 'rewards', '3': 'impact', '4': 'apps', '5': 'daily', '6': 'dreams' };
     if (tabByDigit[key]) {
       switchTab(tabByDigit[key]);
       e.preventDefault();
@@ -5472,6 +5605,7 @@ function initKeyboardShortcuts() {
         break;
       case 'q': switchTab('quests');  e.preventDefault(); break;
       case 'r': switchTab('rewards'); e.preventDefault(); break;
+      case 'a': switchTab('apps');    e.preventDefault(); break;
       case 'i':
       case 'd':
         // Both "I" (Impact) and "D" (Dashboard) open the Impact tab
