@@ -1992,18 +1992,56 @@ function parseFocusDailyTargetSeconds(task) {
   return 0;
 }
 
+function getFocusDailyProgress(task) {
+  const targetSeconds = parseFocusDailyTargetSeconds(task);
+  if (targetSeconds <= 0) return null;
+
+  const focusSeconds = getFocusSecondsToday();
+  const clampedSeconds = Math.min(focusSeconds, targetSeconds);
+  const pct = Math.min(100, Math.round((focusSeconds / targetSeconds) * 100));
+  return {
+    targetSeconds,
+    focusSeconds,
+    clampedSeconds,
+    pct,
+    label: `${humanizeSeconds(clampedSeconds)} / ${humanizeSeconds(targetSeconds)}`,
+  };
+}
+
+function updateDailyFocusProgressViews() {
+  const container = document.getElementById('daily-tasks-list');
+  if (!container) return;
+
+  state.dailyTasks.forEach(task => {
+    const progress = getFocusDailyProgress(task);
+    if (!progress) return;
+
+    const taskEl = Array.from(container.querySelectorAll('.task-item'))
+      .find(el => el.dataset.id === task.id);
+    if (!taskEl) return;
+
+    const valueEl = taskEl.querySelector('[data-focus-value]');
+    const barEl = taskEl.querySelector('[data-focus-bar]');
+    if (valueEl) valueEl.textContent = progress.label;
+    if (barEl) barEl.style.width = `${progress.pct}%`;
+  });
+}
+
 function applyFocusDailyProgress() {
   const focusSeconds = getFocusSecondsToday();
-  if (focusSeconds <= 0) return;
+  if (focusSeconds <= 0) return false;
 
   const today = todayStr();
+  let completedAny = false;
   state.dailyTasks.forEach(task => {
     if (task.completedDate === today) return;
     const targetSeconds = parseFocusDailyTargetSeconds(task);
     if (targetSeconds > 0 && focusSeconds >= targetSeconds) {
+      completedAny = true;
       completeDailyTask(task.id, { autoSource: 'focus' });
     }
   });
+  return completedAny;
 }
 
 function normalizePcAppTrackerPayload(payload) {
@@ -2048,9 +2086,8 @@ async function refreshPcAppTracker() {
     };
   }
   renderPcAppTrackerCard();
-  applyFocusDailyProgress();
-  renderDailyTasks();
-  updateDailyProgress();
+  const completedAny = applyFocusDailyProgress();
+  if (!completedAny) updateDailyFocusProgressViews();
 }
 
 function initPcAppTracker() {
@@ -4065,19 +4102,15 @@ function renderDailyTaskItem(task, today) {
   const diff      = DIFFICULTY[task.difficulty];
   const cat       = CATEGORY[task.category];
   const doneToday = task.completedDate === today;
-  const focusTargetSeconds = parseFocusDailyTargetSeconds(task);
-  const focusSeconds = focusTargetSeconds > 0 ? getFocusSecondsToday() : 0;
-  const focusPct = focusTargetSeconds > 0
-    ? Math.min(100, Math.round((focusSeconds / focusTargetSeconds) * 100))
-    : 0;
-  const focusProgressHtml = focusTargetSeconds > 0 ? `
+  const focusProgress = getFocusDailyProgress(task);
+  const focusProgressHtml = focusProgress ? `
         <div class="daily-focus-progress">
           <div class="daily-focus-progress-text">
             <span>Focus progress</span>
-            <strong>${humanizeSeconds(Math.min(focusSeconds, focusTargetSeconds))} / ${humanizeSeconds(focusTargetSeconds)}</strong>
+            <strong data-focus-value>${focusProgress.label}</strong>
           </div>
           <div class="daily-focus-bar-wrap">
-            <div class="daily-focus-bar" style="width:${focusPct}%"></div>
+            <div class="daily-focus-bar" data-focus-bar style="width:${focusProgress.pct}%"></div>
           </div>
         </div>` : '';
 
@@ -4097,7 +4130,7 @@ function renderDailyTaskItem(task, today) {
           <span class="badge badge-${task.difficulty}">${diff.emoji} ${diff.label}</span>
           <span class="xp-reward">+${diff.xp} XP</span>
           <span class="coin-reward">+${diff.coins} 🪙</span>
-          ${focusTargetSeconds > 0 ? '<span class="badge badge-focus-auto">Auto focus</span>' : ''}
+          ${focusProgress ? '<span class="badge badge-focus-auto">Auto focus</span>' : ''}
           ${doneToday
             ? `<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.25);">✓ Done today</span>`
             : ''
