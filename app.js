@@ -62,6 +62,19 @@ const INFLATION_INCREMENT  = 0.5;  // Price multiplier added per cheat-penalty p
 const MS_PER_DAY           = 86400000; // Milliseconds in one day
 const PC_APP_TRACKER_URL   = 'http://127.0.0.1:17321/stats';
 const PC_APP_TRACKER_POLL_MS = 5000;
+const XP_LEVEL_BASE        = 100;
+const XP_LEVEL_GROWTH      = 1.25;
+const LEVEL_COIN_BASE      = 5;
+const LEVEL_COIN_GROWTH    = 1.2;
+const DEFAULT_FOCUS_APP_PROCESSES = [
+  'afterfx.exe',
+  'blender.exe',
+  'premierepro.exe',
+  'adobe premiere pro.exe',
+  'photoshop.exe',
+  'illustrator.exe',
+  'code.exe',
+];
 
 // ==========================================
 // Application State
@@ -218,6 +231,9 @@ let state = {
     lastSeenAt:     null,
     error:          null,
   },
+  pcAppFocusSettings: {
+    processes: [...DEFAULT_FOCUS_APP_PROCESSES],
+  },
 };
 
 // ==========================================
@@ -257,6 +273,7 @@ function saveState() {
   localStorage.setItem('qm_ritualsHistory',      JSON.stringify(state.ritualsHistory));
   localStorage.setItem('qm_pomodoroRuntime',     JSON.stringify(state.pomodoroRuntime));
   localStorage.setItem('qm_tabTimeTracker',      JSON.stringify(state.tabTimeTracker));
+  localStorage.setItem('qm_pcAppFocusSettings',  JSON.stringify(state.pcAppFocusSettings));
 }
 
 /** Load state from localStorage, falling back to defaults */
@@ -372,6 +389,10 @@ function loadState() {
   const savedTabTime = parse('qm_tabTimeTracker', null);
   if (savedTabTime) state.tabTimeTracker = { ...state.tabTimeTracker, ...savedTabTime };
 
+  const savedFocusApps = parse('qm_pcAppFocusSettings', null);
+  if (savedFocusApps) state.pcAppFocusSettings = normalizeFocusAppSettings(savedFocusApps);
+  else state.pcAppFocusSettings = normalizeFocusAppSettings(state.pcAppFocusSettings);
+
   // Clean up orphan localStorage keys from the removed shame-log mechanics
   // so they don't leak into future exports.
   ['qm_shameLog', 'qm_shameStats', 'qm_emergencyUnlockData', 'qm_extensionBindData']
@@ -383,12 +404,25 @@ function loadState() {
 // ==========================================
 
 /**
- * XP required to advance from level N to N+1.
- * Base 100 XP for level 1→2, each subsequent level requires 10 more XP.
- * Formula: level N → needs 100 + (N-1) * 10 XP.
+ * XP required to advance from level N to N+1:
+ * 100 XP for level 1→2, then +25% each level.
  */
 function xpForLevel(level) {
-  return 100 + (level - 1) * 10;
+  return scaleLevelValue(level, XP_LEVEL_BASE, XP_LEVEL_GROWTH);
+}
+
+/** Coins awarded when the user reaches a given level. */
+function coinsForLevel(level) {
+  return scaleLevelValue(level, LEVEL_COIN_BASE, LEVEL_COIN_GROWTH);
+}
+
+function scaleLevelValue(level, base, growth) {
+  const safeLevel = Math.max(1, Number(level) || 1);
+  let value = base;
+  for (let i = 1; i < safeLevel; i++) {
+    value = Math.round(value * growth);
+  }
+  return value;
 }
 
 /**
@@ -400,9 +434,13 @@ function addXP(amount) {
   state.userStats.totalXpEarned += amount;
 
   while (state.userStats.xp >= xpForLevel(state.userStats.level)) {
-    state.userStats.xp    -= xpForLevel(state.userStats.level);
+    const required = xpForLevel(state.userStats.level);
+    state.userStats.xp    -= required;
     state.userStats.level += 1;
-    showLevelUp(state.userStats.level);
+    const levelCoins = coinsForLevel(state.userStats.level);
+    state.userStats.coins            += levelCoins;
+    state.userStats.totalCoinsEarned += levelCoins;
+    showLevelUp(state.userStats.level, levelCoins);
   }
 }
 
@@ -1829,6 +1867,145 @@ function renderTabTimeCard() {
 
 let pcAppTrackerPollHandle = null;
 
+function normalizeProcessName(processName) {
+  const trimmed = String(processName || '').trim().toLowerCase();
+  if (!trimmed) return '';
+  const fileName = trimmed.split(/[\\/]/).pop();
+  return fileName.endsWith('.exe') ? fileName : `${fileName}.exe`;
+}
+
+function normalizeFocusAppSettings(settings) {
+  const rawProcesses = Array.isArray(settings)
+    ? settings
+    : Array.isArray(settings?.processes)
+      ? settings.processes
+      : DEFAULT_FOCUS_APP_PROCESSES;
+  const processes = Array.from(new Set(
+    rawProcesses
+      .map(normalizeProcessName)
+      .filter(Boolean)
+  ));
+  return { processes };
+}
+
+function getFocusAppProcesses() {
+  state.pcAppFocusSettings = normalizeFocusAppSettings(state.pcAppFocusSettings);
+  return new Set(state.pcAppFocusSettings.processes);
+}
+
+function getFocusSecondsToday() {
+  const tracker = state.pcAppTracker;
+  if (!tracker.connected || tracker.date !== todayStr()) return 0;
+
+  const focusProcesses = getFocusAppProcesses();
+  if (focusProcesses.size === 0) return 0;
+
+  const appEntries = tracker.apps && Object.keys(tracker.apps).length > 0
+    ? Object.entries(tracker.apps).map(([process, data]) => [process, data])
+    : (tracker.top || []).map(item => [item.process, item]);
+
+  return appEntries.reduce((total, [process, data]) => {
+    const normalized = normalizeProcessName(data?.process || process);
+    if (!focusProcesses.has(normalized)) return total;
+    return total + (Number(data?.seconds) || 0);
+  }, 0);
+}
+
+function renderFocusAppSettings() {
+  const listEl = document.getElementById('focus-app-list');
+  if (!listEl) return;
+
+  const processes = state.pcAppFocusSettings.processes || [];
+  if (processes.length === 0) {
+    listEl.innerHTML = '<div class="focus-app-empty">No focus apps selected.</div>';
+    return;
+  }
+
+  listEl.innerHTML = processes.map(process => `
+    <span class="focus-app-chip">
+      <span>${escapeHtml(process)}</span>
+      <button type="button" data-action="remove-focus-app" data-process="${escapeHtml(process)}" aria-label="Remove ${escapeHtml(process)}">x</button>
+    </span>
+  `).join('');
+
+  listEl.querySelectorAll('[data-action="remove-focus-app"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const process = normalizeProcessName(btn.dataset.process);
+      state.pcAppFocusSettings.processes = state.pcAppFocusSettings.processes
+        .filter(item => normalizeProcessName(item) !== process);
+      saveState();
+      renderFocusAppSettings();
+      renderPcAppTrackerCard();
+      renderDailyTasks();
+      updateDailyProgress();
+    });
+  });
+}
+
+function initFocusAppSettingsUi() {
+  const input = document.getElementById('focus-app-input');
+  const addBtn = document.getElementById('add-focus-app-btn');
+  if (!input || !addBtn) return;
+
+  const addFocusApp = () => {
+    const process = normalizeProcessName(input.value);
+    if (!process) return;
+    const focusProcesses = getFocusAppProcesses();
+    if (focusProcesses.has(process)) {
+      showToast(`${escapeHtml(process)} already counts as focus.`, 'info');
+      input.value = '';
+      return;
+    }
+    state.pcAppFocusSettings.processes.push(process);
+    state.pcAppFocusSettings.processes = Array.from(new Set(
+      state.pcAppFocusSettings.processes.map(normalizeProcessName).filter(Boolean)
+    )).sort();
+    input.value = '';
+    saveState();
+    renderFocusAppSettings();
+    renderPcAppTrackerCard();
+    applyFocusDailyProgress();
+    renderDailyTasks();
+    updateDailyProgress();
+    showToast(`${escapeHtml(process)} added to focus apps.`, 'success');
+  };
+
+  addBtn.addEventListener('click', addFocusApp);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') addFocusApp();
+  });
+  renderFocusAppSettings();
+}
+
+function parseFocusDailyTargetSeconds(task) {
+  const text = `${task?.title || ''} ${task?.desc || ''}`.toLowerCase();
+  if (!/(focus|фокус)/iu.test(text)) return 0;
+
+  const durationPattern = /(\d+(?:[.,]\d+)?)\s*(мин(?:ут[а-я]*)?|м|min(?:ute)?s?|час(?:а|ов)?|ч|h|hr|hrs|hour|hours)(?=\s|$|[.,;:!?])/giu;
+  for (const match of text.matchAll(durationPattern)) {
+    const amount = Number(String(match[1]).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const unit = match[2].toLowerCase();
+    const isHours = /^(h|hr|hrs|hour|hours|ч|час)/iu.test(unit);
+    return Math.round(amount * (isHours ? 3600 : 60));
+  }
+  return 0;
+}
+
+function applyFocusDailyProgress() {
+  const focusSeconds = getFocusSecondsToday();
+  if (focusSeconds <= 0) return;
+
+  const today = todayStr();
+  state.dailyTasks.forEach(task => {
+    if (task.completedDate === today) return;
+    const targetSeconds = parseFocusDailyTargetSeconds(task);
+    if (targetSeconds > 0 && focusSeconds >= targetSeconds) {
+      completeDailyTask(task.id, { autoSource: 'focus' });
+    }
+  });
+}
+
 function normalizePcAppTrackerPayload(payload) {
   const today = payload && payload.today ? payload.today : {};
   const apps = today.apps || payload?.apps || {};
@@ -1871,11 +2048,15 @@ async function refreshPcAppTracker() {
     };
   }
   renderPcAppTrackerCard();
+  applyFocusDailyProgress();
+  renderDailyTasks();
+  updateDailyProgress();
 }
 
 function initPcAppTracker() {
   const btn = document.getElementById('pc-app-refresh-btn');
   if (btn) btn.addEventListener('click', refreshPcAppTracker);
+  initFocusAppSettingsUi();
   renderPcAppTrackerCard();
   refreshPcAppTracker();
   if (!pcAppTrackerPollHandle) {
@@ -1888,8 +2069,10 @@ function renderPcAppTrackerCard() {
   const statusEl = document.getElementById('pc-app-status');
   const totalEl = document.getElementById('pc-app-total');
   const trackedEl = document.getElementById('pc-app-tracked-total');
+  const focusEl = document.getElementById('pc-app-focus-total');
   const activeEl = document.getElementById('pc-app-active');
   const container = document.getElementById('pc-app-breakdown');
+  renderFocusAppSettings();
   if (!container) return;
 
   if (statusEl) {
@@ -1898,6 +2081,7 @@ function renderPcAppTrackerCard() {
   }
   if (totalEl) totalEl.textContent = humanizeSeconds(tracker.totalSeconds || 0);
   if (trackedEl) trackedEl.textContent = humanizeSeconds(tracker.trackedSeconds || 0);
+  if (focusEl) focusEl.textContent = humanizeSeconds(getFocusSecondsToday());
 
   if (!tracker.connected) {
     if (activeEl) activeEl.textContent = 'Desktop agent offline';
@@ -1923,6 +2107,7 @@ function renderPcAppTrackerCard() {
   }
 
   const maxSeconds = Math.max(...entries.map(item => Number(item.seconds) || 0), 1);
+  const focusProcesses = getFocusAppProcesses();
   container.innerHTML = entries.map(item => {
     const seconds = Number(item.seconds) || 0;
     const pct = Math.max(2, Math.round((seconds / maxSeconds) * 100));
@@ -1930,8 +2115,9 @@ function renderPcAppTrackerCard() {
     const process = item.process && item.process !== label ? ` · ${item.process}` : '';
     const category = item.category || 'other';
     const trackedClass = item.isTracked ? ' tracked' : '';
+    const focusClass = focusProcesses.has(normalizeProcessName(item.process || label)) ? ' focus' : '';
     return `
-      <div class="pc-app-row${trackedClass}">
+      <div class="pc-app-row${trackedClass}${focusClass}">
         <div class="pc-app-name">
           <span>${escapeHtml(label)}</span>
           <small>${escapeHtml(category)}${escapeHtml(process)}</small>
@@ -2732,19 +2918,26 @@ function showToast(message, type = 'info') {
 // ==========================================
 
 /** Show the full-screen level-up overlay */
-function showLevelUp(level) {
+function showLevelUp(level, coinReward = 0) {
   const overlay = document.getElementById('levelup-overlay');
   document.getElementById('levelup-number').textContent = level;
+  const rewardEl = document.getElementById('levelup-reward');
+  if (rewardEl) {
+    rewardEl.textContent = coinReward > 0 ? `+${coinReward} coins` : '';
+  }
   overlay.classList.add('show');
 
   // Auto-dismiss after 2.5 s
   setTimeout(() => overlay.classList.remove('show'), 2500);
-  showToast(`🎉 Level Up! You are now level ${level}!`, 'success');
+  const rewardText = coinReward > 0 ? ` +${coinReward} 🪙` : '';
+  showToast(`🎉 Level Up! You are now level ${level}!${rewardText}`, 'success');
   // Also ask the extension to fire a native OS notification so the user
   // sees it even with the tab in the background.
   notifyViaExtension({
     title: `🎉 Level ${level}!`,
-    message: `Ты достиг нового уровня. Продолжай в том же духе!`,
+    message: coinReward > 0
+      ? `Level reward: +${coinReward} coins.`
+      : `Ты достиг нового уровня. Продолжай в том же духе!`,
     id: `levelup_${level}_${Date.now()}`,
   });
 }
@@ -3758,7 +3951,7 @@ function addDailyTask(title, desc, difficulty, category) {
 }
 
 /** Mark a daily task as done today */
-function completeDailyTask(taskId) {
+function completeDailyTask(taskId, options = {}) {
   const task = state.dailyTasks.find(t => t.id === taskId);
   if (!task) return;
 
@@ -3786,7 +3979,8 @@ function completeDailyTask(taskId) {
   updateDailyProgress();
   updateHeader();
   updateDebtWarning();
-  showToast(`+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
+  const sourceLabel = options.autoSource === 'focus' ? 'Focus auto-complete: ' : '';
+  showToast(`${sourceLabel}+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
 
   // Check for all-completed bonus
   checkDailyCompletionBonus();
@@ -3871,6 +4065,21 @@ function renderDailyTaskItem(task, today) {
   const diff      = DIFFICULTY[task.difficulty];
   const cat       = CATEGORY[task.category];
   const doneToday = task.completedDate === today;
+  const focusTargetSeconds = parseFocusDailyTargetSeconds(task);
+  const focusSeconds = focusTargetSeconds > 0 ? getFocusSecondsToday() : 0;
+  const focusPct = focusTargetSeconds > 0
+    ? Math.min(100, Math.round((focusSeconds / focusTargetSeconds) * 100))
+    : 0;
+  const focusProgressHtml = focusTargetSeconds > 0 ? `
+        <div class="daily-focus-progress">
+          <div class="daily-focus-progress-text">
+            <span>Focus progress</span>
+            <strong>${humanizeSeconds(Math.min(focusSeconds, focusTargetSeconds))} / ${humanizeSeconds(focusTargetSeconds)}</strong>
+          </div>
+          <div class="daily-focus-bar-wrap">
+            <div class="daily-focus-bar" style="width:${focusPct}%"></div>
+          </div>
+        </div>` : '';
 
   return `
     <div class="task-item${doneToday ? ' done-today' : ''}" data-id="${task.id}">
@@ -3882,11 +4091,13 @@ function renderDailyTaskItem(task, today) {
       <div class="task-content">
         <div class="task-title">${escapeHtml(task.title)}</div>
         ${task.desc ? `<div class="task-desc">${escapeHtml(task.desc)}</div>` : ''}
+        ${focusProgressHtml}
         <div class="task-meta">
           <span class="badge badge-category">${cat.emoji} ${cat.label}</span>
           <span class="badge badge-${task.difficulty}">${diff.emoji} ${diff.label}</span>
           <span class="xp-reward">+${diff.xp} XP</span>
           <span class="coin-reward">+${diff.coins} 🪙</span>
+          ${focusTargetSeconds > 0 ? '<span class="badge badge-focus-auto">Auto focus</span>' : ''}
           ${doneToday
             ? `<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.25);">✓ Done today</span>`
             : ''
@@ -4566,7 +4777,7 @@ const EXPORTABLE_KEYS = [
   'qm_notificationsEnabled', 'qm_reminderSettings',
   'qm_pomodoroSettings', 'qm_pomodoroRuntime',
   'qm_morningIntention', 'qm_eveningReflection', 'qm_ritualsHistory',
-  'qm_tabTimeTracker',
+  'qm_tabTimeTracker', 'qm_pcAppFocusSettings',
 ];
 
 /** Build a serialisable export payload from localStorage */

@@ -405,6 +405,11 @@
           <div class="stat-value" id="pc-app-total">0с</div>
           <div class="stat-label">Total App Time</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-icon">F</div>
+          <div class="stat-value" id="pc-app-focus-total">0с</div>
+          <div class="stat-label">Focus Today</div>
+        </div>
       </div>
 
       <div class="card" style="margin-top: 1.5rem;">
@@ -415,6 +420,20 @@
           </div>
         </div>
         <div id="pc-app-breakdown" class="pc-app-breakdown"></div>
+      </div>
+
+      <div class="card pc-app-focus-card" style="margin-top: 1rem;">
+        <div class="pc-app-header">
+          <h3 class="card-title" style="margin-bottom:0;">Focus Apps</h3>
+          <div class="pc-app-totals">
+            <span>These processes auto-complete focus daily quests.</span>
+          </div>
+        </div>
+        <div class="focus-app-controls">
+          <input class="form-input" type="text" id="focus-app-input" placeholder="afterfx.exe">
+          <button class="btn btn-primary btn-sm" id="add-focus-app-btn">Add</button>
+        </div>
+        <div class="focus-app-list" id="focus-app-list"></div>
       </div>
     </section>
 
@@ -642,6 +661,7 @@
       <div class="levelup-emoji">🎉</div>
       <div class="levelup-title">LEVEL UP!</div>
       <div class="levelup-subtitle">You reached level <span id="levelup-number"></span></div>
+      <div class="levelup-reward" id="levelup-reward"></div>
       <div class="levelup-hint">Tap anywhere to continue</div>
     </div>
   </div>

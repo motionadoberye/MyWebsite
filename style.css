@@ -490,6 +490,7 @@ body {
 .badge-medium   { background: rgba(245, 158, 11, 0.15);  color: var(--accent-yellow);       border: 1px solid rgba(245, 158, 11, 0.2); }
 .badge-hard     { background: rgba(249, 115, 22, 0.15);  color: var(--accent-orange);       border: 1px solid rgba(249, 115, 22, 0.2); }
 .badge-epic     { background: rgba(239, 68, 68, 0.15);   color: var(--accent-red);          border: 1px solid rgba(239, 68, 68, 0.2); }
+.badge-focus-auto { background: rgba(6, 182, 212, 0.14); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.28); }
 
 .badge-count {
   background: var(--bg-card);
@@ -503,6 +504,40 @@ body {
 
 .xp-reward   { font-size: 0.72rem; color: var(--accent-purple-light); font-weight: 600; }
 .coin-reward { font-size: 0.72rem; color: var(--coin-color);          font-weight: 600; }
+
+.daily-focus-progress {
+  margin: 0.55rem 0 0.6rem;
+}
+
+.daily-focus-progress-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  margin-bottom: 0.25rem;
+}
+
+.daily-focus-progress-text strong {
+  color: #67e8f9;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.daily-focus-bar-wrap {
+  height: 7px;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.daily-focus-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #06b6d4, var(--accent-green));
+  border-radius: 6px;
+  transition: width 0.35s ease;
+}
 
 .task-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: flex-start; }
 
@@ -1029,6 +1064,12 @@ body {
 }
 
 .levelup-subtitle { font-size: 1.25rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+.levelup-reward {
+  min-height: 1.4rem;
+  color: var(--coin-color);
+  font-size: 1rem;
+  font-weight: 800;
+}
 .levelup-hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 1.5rem; }
 
 /* ==========================================
@@ -1058,6 +1099,7 @@ body {
   .daily-gift-btn { width: 100%; }
   .pc-app-row { grid-template-columns: minmax(0, 1fr) auto; }
   .pc-app-bar-wrap { grid-column: 1 / -1; }
+  .focus-app-controls { grid-template-columns: 1fr; }
   .task-item { padding: 0.875rem 1rem; }
 }
 
@@ -2832,12 +2874,75 @@ kbd {
   background: linear-gradient(90deg, var(--accent-orange), var(--accent-red));
 }
 
+.pc-app-row.focus .pc-app-name span {
+  color: #67e8f9;
+}
+
+.pc-app-row.focus .pc-app-bar {
+  background: linear-gradient(90deg, #06b6d4, var(--accent-green));
+}
+
 .pc-app-value {
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   min-width: 60px;
   text-align: right;
+}
+
+.focus-app-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.focus-app-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+
+.focus-app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.32rem 0.42rem 0.32rem 0.6rem;
+  border: 1px solid rgba(6, 182, 212, 0.28);
+  border-radius: 999px;
+  background: rgba(6, 182, 212, 0.1);
+  color: #67e8f9;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.focus-app-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-app-chip button {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: currentColor;
+  cursor: pointer;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.focus-app-chip button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.focus-app-empty {
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 /* ==========================================
