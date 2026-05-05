@@ -39,6 +39,10 @@
           <span class="coin-icon">🪙</span>
           <span class="coin-amount" id="header-coins">0</span>
         </div>
+        <div class="key-badge" id="key-badge" title="Keys for lootboxes">
+          <span class="key-icon">🔑</span>
+          <span class="key-amount" id="header-keys">0</span>
+        </div>
         <!-- ===== INTEGRITY STREAK BADGE ===== -->
         <div class="integrity-badge" id="integrity-badge" title="Integrity Streak — days without cheating">
           <span id="integrity-icon">🔥</span>
@@ -132,6 +136,8 @@
       </div>
       <!-- Daily Gift -->
       <div class="daily-gift-panel" id="daily-gift-panel"></div>
+      <!-- Lootboxes -->
+      <div class="lootbox-panel" id="lootbox-panel"></div>
       <!-- Daily Discount Banner -->
       <div class="daily-discount-banner" id="daily-discount-banner" style="display:none;">
         🏷️ СКИДКА <span id="discount-pct">50</span>% на первую покупку (<span id="discount-type">будний день</span>)!
@@ -188,6 +194,11 @@
           <div class="stat-icon">🪙</div>
           <div class="stat-value" id="stat-coins-earned">0</div>
           <div class="stat-label">Total Coins Earned</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🔑</div>
+          <div class="stat-value" id="stat-keys-earned">0</div>
+          <div class="stat-label">Total Keys Earned</div>
         </div>
         <!-- Integrity Streak Stats -->
         <div class="stat-card">
@@ -504,6 +515,13 @@
           <input class="form-input" type="text" id="task-custom-reward-site" placeholder="e.g. youtube.com" maxlength="100" autocomplete="off">
           <small style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem; display: block;">Domain to unblock when quest is completed (requires timer minutes above)</small>
         </div>
+        <label class="key-reward-toggle">
+          <input type="checkbox" id="task-key-reward">
+          <span>
+            <strong>Give 1 key on completion</strong>
+            <small>Keys open lootboxes in the reward shop.</small>
+          </span>
+        </label>
         <div class="form-group">
           <label class="form-label">Difficulty</label>
           <div class="option-grid" id="difficulty-options">

@@ -178,6 +178,25 @@ body {
   animation: coinPulse 1.5s ease infinite;
 }
 
+.key-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
+  padding: 0.25rem 0.6rem;
+  flex-shrink: 0;
+}
+
+.key-icon { font-size: 1rem; }
+
+.key-amount {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #7dd3fc;
+}
+
 @keyframes coinPulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.5; }
@@ -491,6 +510,7 @@ body {
 .badge-hard     { background: rgba(249, 115, 22, 0.15);  color: var(--accent-orange);       border: 1px solid rgba(249, 115, 22, 0.2); }
 .badge-epic     { background: rgba(239, 68, 68, 0.15);   color: var(--accent-red);          border: 1px solid rgba(239, 68, 68, 0.2); }
 .badge-focus-auto { background: rgba(6, 182, 212, 0.14); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.28); }
+.key-reward-badge { font-size: 0.72rem; color: #7dd3fc; font-weight: 800; }
 
 .badge-count {
   background: var(--bg-card);
@@ -540,6 +560,38 @@ body {
 }
 
 .task-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: flex-start; }
+
+.key-reward-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: var(--radius);
+  background: rgba(56, 189, 248, 0.08);
+  cursor: pointer;
+}
+
+.key-reward-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #38bdf8;
+  margin-top: 0.08rem;
+}
+
+.key-reward-toggle strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.key-reward-toggle small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  margin-top: 0.16rem;
+}
 
 /* ==========================================
    Rewards
@@ -675,6 +727,113 @@ body {
 .daily-gift-btn {
   min-width: 6.5rem;
   white-space: nowrap;
+}
+
+.lootbox-panel {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.54));
+  border: 1px solid rgba(56, 189, 248, 0.26);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.lootbox-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.85rem;
+}
+
+.lootbox-kicker {
+  color: #7dd3fc;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lootbox-title {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 800;
+  margin-top: 0.14rem;
+}
+
+.lootbox-last {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 0.24rem;
+}
+
+.lootbox-key-bank {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: rgba(56, 189, 248, 0.1);
+  color: #7dd3fc;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.lootbox-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.lootbox-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.9rem;
+  min-width: 0;
+}
+
+.lootbox-emoji {
+  font-size: 1.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.lootbox-card-title {
+  color: var(--text-primary);
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.lootbox-cost {
+  color: #7dd3fc;
+  font-size: 0.76rem;
+  font-weight: 800;
+  margin: 0.22rem 0 0.55rem;
+}
+
+.lootbox-odds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+.lootbox-odd {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.22rem 0.48rem;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 0.72rem;
+  font-weight: 700;
+  width: fit-content;
+}
+
+.lootbox-odd-legendary { color: #facc15; border-color: rgba(250, 204, 21, 0.42); }
+.lootbox-odd-rare      { color: #a78bfa; border-color: rgba(167, 139, 250, 0.42); }
+.lootbox-odd-uncommon  { color: #34d399; border-color: rgba(52, 211, 153, 0.42); }
+
+.lootbox-open-btn {
+  width: 100%;
 }
 
 /* Purchased history row */
@@ -1090,6 +1249,8 @@ body {
   .nav-tab { flex: 0 0 auto; min-width: 5.6rem; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .rewards-grid { grid-template-columns: 1fr 1fr; }
+  .lootbox-grid { grid-template-columns: 1fr; }
+  .lootbox-header { flex-direction: column; align-items: stretch; }
   .daily-gift-panel,
   .daily-gift-side {
     flex-direction: column;

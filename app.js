@@ -39,6 +39,41 @@ const DAILY_GIFT_REWARDS = [
   { coins: 5,   chance: 59, tier: 'common',    label: 'Обычный' },
 ];
 
+/** Key-powered lootboxes. Each box costs one key and pays out coins. */
+const LOOTBOXES = [
+  {
+    id: 'high-risk',
+    title: 'Высокий риск',
+    emoji: '💣',
+    costKeys: 1,
+    outcomes: [
+      { coins: 300, chance: 1,  tier: 'legendary', label: 'Большой куш' },
+      { coins: 5,   chance: 99, tier: 'common',    label: 'Почти пусто' },
+    ],
+  },
+  {
+    id: 'medium-risk',
+    title: 'Средний риск',
+    emoji: '🎲',
+    costKeys: 1,
+    outcomes: [
+      { coins: 70, chance: 10, tier: 'rare',     label: 'Удачный ролл' },
+      { coins: 30, chance: 20, tier: 'uncommon', label: 'Нормально' },
+      { coins: 15, chance: 70, tier: 'common',   label: 'Минимум' },
+    ],
+  },
+  {
+    id: 'low-risk',
+    title: 'Низкий риск',
+    emoji: '🧰',
+    costKeys: 1,
+    outcomes: [
+      { coins: 20, chance: 50, tier: 'common',   label: 'Стабильно' },
+      { coins: 30, chance: 50, tier: 'uncommon', label: 'Лучший исход' },
+    ],
+  },
+];
+
 /** Colors for category breakdown bars */
 const CATEGORY_COLORS = {
   work:     'var(--accent-purple)',
@@ -85,14 +120,18 @@ let state = {
   completedTasks:   [],   // completed tasks
   rewards:          [],   // available rewards in the shop
   purchasedRewards: [],   // history of purchased rewards
+  lootboxHistory:   [],   // recent key lootbox rolls
   userStats: {
     level:            1,
     xp:               0,
     coins:            0,
+    keys:             0,
     currentStreak:    0,
     bestStreak:       0,
     totalXpEarned:    0,
     totalCoinsEarned: 0,
+    totalKeysEarned:  0,
+    totalKeysSpent:   0,
   },
   activityLog:  {},  // { "YYYY-MM-DD": completedCount }
   dailyTasks:   [],  // recurring daily quest objects
@@ -246,6 +285,7 @@ function saveState() {
   localStorage.setItem('qm_completedTasks',   JSON.stringify(state.completedTasks));
   localStorage.setItem('qm_rewards',          JSON.stringify(state.rewards));
   localStorage.setItem('qm_purchasedRewards', JSON.stringify(state.purchasedRewards));
+  localStorage.setItem('qm_lootboxHistory',   JSON.stringify(state.lootboxHistory));
   localStorage.setItem('qm_userStats',        JSON.stringify(state.userStats));
   localStorage.setItem('qm_activityLog',      JSON.stringify(state.activityLog));
   localStorage.setItem('qm_dailyTasks',       JSON.stringify(state.dailyTasks));
@@ -287,12 +327,16 @@ function loadState() {
   state.completedTasks   = parse('qm_completedTasks',   []);
   state.rewards          = parse('qm_rewards',          [...DEFAULT_REWARDS]);
   state.purchasedRewards = parse('qm_purchasedRewards', []);
+  state.lootboxHistory   = parse('qm_lootboxHistory',   []);
   state.activityLog      = parse('qm_activityLog',      {});
   state.dailyTasks       = parse('qm_dailyTasks',       []);
   state.activeTimers     = parse('qm_activeTimers',     []);
 
   const savedStats = parse('qm_userStats', null);
   if (savedStats) state.userStats = { ...state.userStats, ...savedStats };
+  state.userStats.keys = Number(state.userStats.keys) || 0;
+  state.userStats.totalKeysEarned = Number(state.userStats.totalKeysEarned) || 0;
+  state.userStats.totalKeysSpent = Number(state.userStats.totalKeysSpent) || 0;
 
   const savedDailyStats = parse('qm_dailyStats', null);
   if (savedDailyStats) state.dailyStats = { ...state.dailyStats, ...savedDailyStats };
@@ -672,7 +716,7 @@ function updateTaskTimerDisplays() {
 }
 
 /** Build a new task object */
-function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
+function createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite, keyReward = false) {
   const now = new Date().toISOString();
   return {
     id:          `task-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -683,6 +727,7 @@ function createTask(title, desc, difficulty, category, timerDurationMs, bonus, p
     customReward: customReward || '',  // optional reward text shown on completion
     customRewardTimerMinutes: customRewardTimerMinutes || null,  // optional timer for custom reward (e.g. 20 minutes)
     customRewardSite: customRewardSite || null,  // optional site to unlock with custom reward (e.g. "youtube.com")
+    keyReward: !!keyReward,  // optional +1 key on completion
     createdAt:   now,
     // ── Timer ──
     timerDurationMs: timerDurationMs || null,  // null = no timer
@@ -706,8 +751,8 @@ function createTask(title, desc, difficulty, category, timerDurationMs, bonus, p
 }
 
 /** Add a new task to the active list */
-function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
-  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite);
+function addTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite, keyReward = false) {
+  const task = createTask(title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite, keyReward);
   state.tasks.unshift(task);
   saveState();
   renderActiveTasks();
@@ -734,6 +779,12 @@ function completeTask(taskId) {
   addXP(xpReward);
   state.userStats.coins            += coinReward;
   state.userStats.totalCoinsEarned += coinReward;
+  const keyReward = task.keyReward && !task.isPenaltyQuest ? 1 : 0;
+  if (keyReward > 0) {
+    state.userStats.keys += keyReward;
+    state.userStats.totalKeysEarned += keyReward;
+  }
+  const keyRewardText = keyReward > 0 ? `  +${keyReward} 🔑` : '';
 
   // Detect debt payoff (balance crossed from negative to non-negative)
   checkDebtPayoff(previousCoins);
@@ -782,7 +833,7 @@ function completeTask(taskId) {
       updateHeader();
       updateCompletedCount();
       updateDebtWarning();
-      showToast(`+${xpReward} XP  +${coinReward} 🪙${penaltyNote}  "${escapeHtml(task.title)}"`, 'success');
+      showToast(`+${xpReward} XP  +${coinReward} 🪙${keyRewardText}${penaltyNote}  "${escapeHtml(task.title)}"`, 'success');
       setTimeout(() => {
         showToast(`🔥 Выполнено за ${timeLeftStr} до дедлайна!`, 'success');
         if (parts.length > 0) {
@@ -806,7 +857,7 @@ function completeTask(taskId) {
       updateHeader();
       updateCompletedCount();
       updateDebtWarning();
-      showToast(`+${xpReward} XP  +${coinReward} 🪙${penaltyNote}  "${escapeHtml(task.title)}" (просрочено)`, 'warning');
+      showToast(`+${xpReward} XP  +${coinReward} 🪙${keyRewardText}${penaltyNote}  "${escapeHtml(task.title)}" (просрочено)`, 'warning');
       if (task.customReward) {
         setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
       }
@@ -819,7 +870,7 @@ function completeTask(taskId) {
     updateHeader();
     updateCompletedCount();
     updateDebtWarning();
-    showToast(`+${xpReward} XP  +${coinReward} 🪙${penaltyNote}  "${escapeHtml(task.title)}"`, 'success');
+    showToast(`+${xpReward} XP  +${coinReward} 🪙${keyRewardText}${penaltyNote}  "${escapeHtml(task.title)}"`, 'success');
     if (task.customReward) {
       setTimeout(() => showToast(`🎁 Награда: ${escapeHtml(task.customReward)}`, 'success'), 600);
     }
@@ -993,6 +1044,55 @@ function claimDailyGift() {
   showToast(`🎁 ${reward.label}: +${reward.coins} 🪙`, reward.tier === 'legendary' ? 'success' : 'info');
 }
 
+function rollWeightedOutcome(outcomes) {
+  const totalChance = outcomes.reduce((sum, item) => sum + item.chance, 0);
+  let roll = Math.random() * totalChance;
+  for (const outcome of outcomes) {
+    roll -= outcome.chance;
+    if (roll < 0) return outcome;
+  }
+  return outcomes[outcomes.length - 1];
+}
+
+function openLootbox(boxId) {
+  const box = LOOTBOXES.find(item => item.id === boxId);
+  if (!box) return;
+
+  if ((state.userStats.keys || 0) < box.costKeys) {
+    showToast(`Нужен ${box.costKeys} 🔑 для "${escapeHtml(box.title)}"`, 'warning');
+    return;
+  }
+
+  const outcome = rollWeightedOutcome(box.outcomes);
+  const previousCoins = state.userStats.coins;
+  state.userStats.keys -= box.costKeys;
+  state.userStats.totalKeysSpent += box.costKeys;
+  state.userStats.coins += outcome.coins;
+  state.userStats.totalCoinsEarned += outcome.coins;
+
+  state.lootboxHistory.unshift({
+    id: `lootbox-${Date.now()}`,
+    boxId: box.id,
+    boxTitle: box.title,
+    boxEmoji: box.emoji,
+    coins: outcome.coins,
+    chance: outcome.chance,
+    tier: outcome.tier,
+    label: outcome.label,
+    openedAt: new Date().toISOString(),
+  });
+  if (state.lootboxHistory.length > 12) state.lootboxHistory.length = 12;
+
+  saveState();
+  updateHeader();
+  updateDebtWarning();
+  renderLootboxes();
+  renderImpact();
+  checkDebtPayoff(previousCoins);
+  checkAchievements();
+  showToast(`${box.emoji} ${escapeHtml(box.title)}: ${outcome.label} +${outcome.coins} 🪙`, outcome.tier === 'legendary' || outcome.tier === 'rare' ? 'success' : 'info');
+}
+
 // ── Daily Credit Limit ──
 const DAILY_CREDIT_LIMIT = 3;
 
@@ -1092,7 +1192,7 @@ function buyReward(rewardId) {
 
 /** Sync header level badge, XP bar, coin display, and integrity streak */
 function updateHeader() {
-  const { level, xp, coins } = state.userStats;
+  const { level, xp, coins, keys = 0 } = state.userStats;
   const required = xpForLevel(level);
   const pct      = Math.min((xp / required) * 100, 100);
 
@@ -1103,6 +1203,8 @@ function updateHeader() {
   const coinsEl   = document.getElementById('header-coins');
   const coinBadge = document.getElementById('coin-badge');
   coinsEl.textContent = coins;
+  const keysEl = document.getElementById('header-keys');
+  if (keysEl) keysEl.textContent = keys;
 
   // Negative balance — red + pulsation
   if (coins < 0) {
@@ -1224,6 +1326,7 @@ function renderTaskItem(task, completed) {
           <span class="badge badge-${task.difficulty}">${diff.emoji} ${diff.label}</span>
           <span class="xp-reward">+${xpDisplay} XP</span>
           <span class="coin-reward">+${coinDisplay} 🪙</span>
+          ${task.keyReward ? '<span class="key-reward-badge">+1 🔑</span>' : ''}
           ${penaltyBadge}
           ${task.isPenaltyQuest ? '<span class="badge badge-penalty-reward">⚔️ Штрафной — награда x0.5</span>' : ''}
           ${task.bonus && (task.bonus.coins > 0 || task.bonus.pct > 0 || task.bonus.custom) ? `<span class="badge-bonus-reward">🎁 Бонус</span>` : ''}
@@ -1270,6 +1373,7 @@ function updateCompletedCount() {
 function renderRewards() {
   const container = document.getElementById('rewards-list');
   renderDailyGift();
+  renderLootboxes();
 
   if (state.rewards.length === 0) {
     container.innerHTML = `
@@ -1389,6 +1493,51 @@ function renderDailyGift() {
   if (btn) btn.addEventListener('click', claimDailyGift);
 }
 
+function renderLootboxes() {
+  const panel = document.getElementById('lootbox-panel');
+  if (!panel) return;
+
+  const keys = state.userStats.keys || 0;
+  const last = state.lootboxHistory[0];
+  const lastHtml = last
+    ? `<div class="lootbox-last">Последний ролл: ${escapeHtml(last.boxTitle)} · +${last.coins} 🪙 (${last.chance}%)</div>`
+    : '<div class="lootbox-last">Ключи падают только с квестов, где включена награда 🔑.</div>';
+
+  panel.innerHTML = `
+    <div class="lootbox-header">
+      <div>
+        <div class="lootbox-kicker">Лутбоксы за ключи</div>
+        <div class="lootbox-title">Открой рискованный сундук</div>
+        ${lastHtml}
+      </div>
+      <div class="lootbox-key-bank"><span>🔑</span><strong>${keys}</strong></div>
+    </div>
+    <div class="lootbox-grid">
+      ${LOOTBOXES.map(box => {
+        const canOpen = keys >= box.costKeys;
+        const oddsHtml = box.outcomes.map(outcome => `
+          <span class="lootbox-odd lootbox-odd-${outcome.tier}">
+            ${outcome.chance}% · +${outcome.coins} 🪙
+          </span>`).join('');
+        return `
+          <div class="lootbox-card lootbox-card-${box.id}">
+            <div class="lootbox-emoji">${box.emoji}</div>
+            <div class="lootbox-card-title">${escapeHtml(box.title)}</div>
+            <div class="lootbox-cost">Цена: ${box.costKeys} 🔑</div>
+            <div class="lootbox-odds">${oddsHtml}</div>
+            <button class="btn ${canOpen ? 'btn-primary' : 'btn-disabled'} btn-sm lootbox-open-btn" data-action="open-lootbox" data-id="${box.id}" ${canOpen ? '' : 'disabled'}>
+              Открыть
+            </button>
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  panel.querySelectorAll('[data-action="open-lootbox"]').forEach(btn => {
+    btn.addEventListener('click', () => openLootbox(btn.dataset.id));
+  });
+}
+
 function renderPurchasedRewards() {
   const container = document.getElementById('purchased-rewards');
 
@@ -1436,6 +1585,7 @@ function renderImpact() {
   document.getElementById('stat-best-streak').textContent  = state.userStats.bestStreak;
   document.getElementById('stat-xp').textContent           = state.userStats.totalXpEarned;
   document.getElementById('stat-coins-earned').textContent = state.userStats.totalCoinsEarned;
+  document.getElementById('stat-keys-earned').textContent  = state.userStats.totalKeysEarned || 0;
 
   // Psychological mechanics stats
   document.getElementById('stat-integrity-streak').textContent = state.integrityData.currentStreak;
@@ -3007,6 +3157,7 @@ function openTaskEditModal(taskId) {
   document.getElementById('task-custom-reward').value = task.customReward || '';
   document.getElementById('task-custom-reward-timer').value = task.customRewardTimerMinutes || '';
   document.getElementById('task-custom-reward-site').value = task.customRewardSite || '';
+  document.getElementById('task-key-reward').checked = !!task.keyReward;
   selectedDifficulty = task.difficulty;
   document.querySelectorAll('#difficulty-options .option-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.value === task.difficulty));
@@ -3060,7 +3211,7 @@ function openTaskEditModal(taskId) {
   setTimeout(() => document.getElementById('task-title').focus(), 100);
 }
 
-function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite) {
+function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite, keyReward = false) {
   const task = state.tasks.find(t => t.id === taskId);
   if (!task) return;
   task.title        = title;
@@ -3070,6 +3221,7 @@ function updateTask(taskId, title, desc, difficulty, category, timerDurationMs, 
   task.customReward = customReward || '';
   task.customRewardTimerMinutes = customRewardTimerMinutes || null;
   task.customRewardSite = customRewardSite || null;
+  task.keyReward = !!keyReward;
   if (timerDurationMs) {
     task.timerDurationMs = timerDurationMs;
     task.timerStartTime  = new Date().toISOString();
@@ -3182,6 +3334,7 @@ function resetTaskForm() {
   document.getElementById('task-custom-reward').value = '';
   document.getElementById('task-custom-reward-timer').value = '';
   document.getElementById('task-custom-reward-site').value = '';
+  document.getElementById('task-key-reward').checked = false;
   document.getElementById('task-timer-days').value   = '';
   document.getElementById('task-timer-hours').value  = '';
   document.getElementById('task-timer-minutes').value = '';
@@ -3246,11 +3399,12 @@ function submitTask() {
   const customReward = document.getElementById('task-custom-reward').value.trim();
   const customRewardTimerMinutes = parseInt(document.getElementById('task-custom-reward-timer').value, 10) || null;
   const customRewardSite = document.getElementById('task-custom-reward-site').value.trim().toLowerCase().replace(/^www\./, '') || null;
+  const keyReward = document.getElementById('task-key-reward').checked;
 
   if (editingTaskId) {
-    updateTask(editingTaskId, title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite);
+    updateTask(editingTaskId, title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite, keyReward);
   } else {
-    addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite);
+    addTask(title, desc, selectedDifficulty, selectedCategory, timerDurationMs, bonus, penalty, customReward, customRewardTimerMinutes, customRewardSite, keyReward);
   }
   closeModal('task-modal');
 }
@@ -4801,7 +4955,7 @@ const EXPORT_VERSION = 1;
 
 /** All localStorage keys that represent persistent Quest Manager state */
 const EXPORTABLE_KEYS = [
-  'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards',
+  'qm_tasks', 'qm_completedTasks', 'qm_rewards', 'qm_purchasedRewards', 'qm_lootboxHistory',
   'qm_userStats', 'qm_activityLog', 'qm_dailyTasks', 'qm_dailyStats',
   'qm_activeTimers', 'qm_inflationData', 'qm_integrityData', 'qm_debtStats',
   'qm_timerStats', 'qm_dreams', 'qm_completedDreams', 'qm_dreamStats',
