@@ -267,6 +267,11 @@ let state = {
     totalSeconds:   0,
     trackedSeconds: 0,
     top:            [],
+    displayWindowHours: 48,
+    todayApps:      {},
+    todayCategories:{},
+    todayTotalSeconds: 0,
+    todayTrackedSeconds: 0,
     lastSeenAt:     null,
     error:          null,
   },
@@ -2043,22 +2048,31 @@ function getFocusAppProcesses() {
   return new Set(state.pcAppFocusSettings.processes);
 }
 
-function getFocusSecondsToday() {
-  const tracker = state.pcAppTracker;
-  if (!tracker.connected || tracker.date !== todayStr()) return 0;
-
+function sumFocusSecondsFromAppStats(apps, top) {
   const focusProcesses = getFocusAppProcesses();
   if (focusProcesses.size === 0) return 0;
 
-  const appEntries = tracker.apps && Object.keys(tracker.apps).length > 0
-    ? Object.entries(tracker.apps).map(([process, data]) => [process, data])
-    : (tracker.top || []).map(item => [item.process, item]);
+  const appEntries = apps && Object.keys(apps).length > 0
+    ? Object.entries(apps).map(([process, data]) => [process, data])
+    : (top || []).map(item => [item.process, item]);
 
   return appEntries.reduce((total, [process, data]) => {
     const normalized = normalizeProcessName(data?.process || process);
     if (!focusProcesses.has(normalized)) return total;
     return total + (Number(data?.seconds) || 0);
   }, 0);
+}
+
+function getFocusSecondsToday() {
+  const tracker = state.pcAppTracker;
+  if (!tracker.connected || tracker.date !== todayStr()) return 0;
+  return sumFocusSecondsFromAppStats(tracker.todayApps || tracker.apps || {}, tracker.todayTop || tracker.top || []);
+}
+
+function getFocusSecondsDisplayedWindow() {
+  const tracker = state.pcAppTracker;
+  if (!tracker.connected) return 0;
+  return sumFocusSecondsFromAppStats(tracker.apps || {}, tracker.top || []);
 }
 
 function renderFocusAppSettings() {
@@ -2196,10 +2210,14 @@ function applyFocusDailyProgress() {
 
 function normalizePcAppTrackerPayload(payload) {
   const today = payload && payload.today ? payload.today : {};
-  const apps = today.apps || payload?.apps || {};
-  const top = Array.isArray(payload?.top)
-    ? payload.top
-    : Object.entries(apps).map(([process, data]) => ({
+  const windowData = payload?.window48 || payload?.window || {};
+  const hasWindowData = !!payload?.window48 || !!payload?.window;
+  const apps = windowData.apps || today.apps || payload?.apps || {};
+  const top = Array.isArray(windowData.top)
+    ? windowData.top
+    : Array.isArray(payload?.top) && !hasWindowData
+      ? payload.top
+      : Object.entries(apps).map(([process, data]) => ({
         process,
         label: data.label || process,
         category: data.category || 'other',
@@ -2212,10 +2230,15 @@ function normalizePcAppTrackerPayload(payload) {
     date:           payload?.date || today.date || todayStr(),
     active:         payload?.active || null,
     apps,
-    categories:     today.categories || payload?.categories || {},
-    totalSeconds:   Number(today.totalSeconds || payload?.totalSeconds || 0),
-    trackedSeconds: Number(today.trackedSeconds || payload?.trackedSeconds || 0),
+    categories:     windowData.categories || today.categories || payload?.categories || {},
+    totalSeconds:   Number(windowData.totalSeconds || today.totalSeconds || payload?.totalSeconds || 0),
+    trackedSeconds: Number(windowData.trackedSeconds || today.trackedSeconds || payload?.trackedSeconds || 0),
     top,
+    displayWindowHours: Number(windowData.hours || (hasWindowData ? 48 : 24)),
+    todayApps:      today.apps || {},
+    todayCategories: today.categories || {},
+    todayTotalSeconds: Number(today.totalSeconds || 0),
+    todayTrackedSeconds: Number(today.trackedSeconds || 0),
     lastSeenAt:     Date.now(),
     error:          null,
   };
@@ -2268,7 +2291,7 @@ function renderPcAppTrackerCard() {
   }
   if (totalEl) totalEl.textContent = humanizeSeconds(tracker.totalSeconds || 0);
   if (trackedEl) trackedEl.textContent = humanizeSeconds(tracker.trackedSeconds || 0);
-  if (focusEl) focusEl.textContent = humanizeSeconds(getFocusSecondsToday());
+  if (focusEl) focusEl.textContent = humanizeSeconds(getFocusSecondsDisplayedWindow());
 
   if (!tracker.connected) {
     if (activeEl) activeEl.textContent = 'Desktop agent offline';
@@ -2289,7 +2312,7 @@ function renderPcAppTrackerCard() {
     .slice(0, 8);
 
   if (entries.length === 0) {
-    container.innerHTML = '<div class="pc-app-empty">Сегодня ещё нет времени в приложениях.</div>';
+    container.innerHTML = '<div class="pc-app-empty">За последние 48 часов ещё нет времени в приложениях.</div>';
     return;
   }
 
