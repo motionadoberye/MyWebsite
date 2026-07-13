@@ -3,12 +3,12 @@
  * Offline support + installable PWA
  * ========================================== */
 
-const CACHE_VERSION = 'qm-v1';
+const CACHE_VERSION = 'qm-v2-app-dailies';
 const APP_SHELL = [
   './',
   './index.html',
-  './app.js',
-  './style.css',
+  './app.js?v=20260714-app-dailies',
+  './style.css?v=20260714-app-dailies',
   './manifest.webmanifest',
   './icons/icon.svg',
   './questlife-extension/icons/icon16.png',

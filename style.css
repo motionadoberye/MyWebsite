@@ -544,6 +544,12 @@ body {
   white-space: nowrap;
 }
 
+.daily-focus-progress-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .daily-focus-bar-wrap {
   height: 7px;
   background: var(--bg-card-hover);
@@ -1087,6 +1093,34 @@ body {
 .form-input::placeholder { color: var(--text-muted); }
 .form-textarea { resize: vertical; min-height: 80px; }
 
+.form-hint {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.daily-app-automation {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(120px, 0.7fr);
+  gap: 0.85rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(6, 182, 212, 0.28);
+  border-radius: var(--radius);
+  background: rgba(6, 182, 212, 0.07);
+}
+
+.daily-app-automation[hidden] { display: none; }
+
+.daily-app-agent-status {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.daily-app-agent-status.online { color: var(--accent-green); }
+.daily-app-agent-status.offline { color: var(--accent-yellow); }
+
 /* Option grid (difficulty / category buttons) */
 .option-grid {
   display: grid;
@@ -1261,6 +1295,7 @@ body {
   .pc-app-row { grid-template-columns: minmax(0, 1fr) auto; }
   .pc-app-bar-wrap { grid-column: 1 / -1; }
   .focus-app-controls { grid-template-columns: 1fr; }
+  .daily-app-automation { grid-template-columns: 1fr; }
   .task-item { padding: 0.875rem 1rem; }
 }
 
@@ -1500,6 +1535,22 @@ body {
 /* Completed daily task styling */
 .done-today { opacity: 0.55; }
 .done-today .task-title { color: var(--text-muted); }
+
+.task-check.task-check-auto {
+  display: grid;
+  place-items: center;
+  border-color: rgba(6, 182, 212, 0.42);
+  color: #67e8f9;
+  background: rgba(6, 182, 212, 0.1);
+  font-size: 0.7rem;
+  cursor: default;
+}
+
+.task-check.task-check-auto:hover {
+  border-color: rgba(6, 182, 212, 0.42);
+  color: #67e8f9;
+  background: rgba(6, 182, 212, 0.1);
+}
 
 /* Bonus reward badge on quest cards */
 .badge-bonus-reward {

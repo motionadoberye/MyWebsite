@@ -2066,7 +2066,7 @@ function sumFocusSecondsFromAppStats(apps, top) {
 function getFocusSecondsToday() {
   const tracker = state.pcAppTracker;
   if (!tracker.connected || tracker.date !== todayStr()) return 0;
-  return sumFocusSecondsFromAppStats(tracker.todayApps || tracker.apps || {}, tracker.todayTop || tracker.top || []);
+  return sumFocusSecondsFromAppStats(tracker.todayApps || {}, []);
 }
 
 function getFocusSecondsDisplayedWindow() {
@@ -2156,19 +2156,71 @@ function parseFocusDailyTargetSeconds(task) {
   return 0;
 }
 
-function getFocusDailyProgress(task) {
-  const targetSeconds = parseFocusDailyTargetSeconds(task);
-  if (targetSeconds <= 0) return null;
+function normalizeDailyAutomation(automation) {
+  if (!automation || automation.type !== 'app-time') return null;
+  const process = normalizeProcessName(automation.process);
+  const targetSeconds = Math.round(Number(automation.targetSeconds) || 0);
+  if (!process || targetSeconds <= 0) return null;
+  return { type: 'app-time', process, targetSeconds };
+}
 
-  const focusSeconds = getFocusSecondsToday();
-  const clampedSeconds = Math.min(focusSeconds, targetSeconds);
-  const pct = Math.min(100, Math.round((focusSeconds / targetSeconds) * 100));
+function getDailyAutomation(task) {
+  const automation = normalizeDailyAutomation(task?.automation);
+  if (automation) return automation;
+
+  // Backward compatibility for dailies created with names such as
+  // "Focus 20 min" before the explicit app-time fields existed.
+  const legacyTargetSeconds = parseFocusDailyTargetSeconds(task);
+  return legacyTargetSeconds > 0
+    ? { type: 'legacy-focus-time', process: null, targetSeconds: legacyTargetSeconds }
+    : null;
+}
+
+function getAppSecondsToday(processName) {
+  const tracker = state.pcAppTracker;
+  const normalizedTarget = normalizeProcessName(processName);
+  if (!normalizedTarget || !tracker.connected || tracker.date !== todayStr()) return 0;
+
+  return Object.entries(tracker.todayApps || {}).reduce((total, [process, data]) => {
+    const normalized = normalizeProcessName(data?.process || process);
+    return normalized === normalizedTarget ? total + (Number(data?.seconds) || 0) : total;
+  }, 0);
+}
+
+function getTrackedAppLabel(processName) {
+  const normalizedTarget = normalizeProcessName(processName);
+  const tracker = state.pcAppTracker;
+  const entries = [
+    ...Object.entries(tracker.todayApps || {}),
+    ...(tracker.top || []).map(item => [item.process, item]),
+  ];
+  const match = entries.find(([process, data]) =>
+    normalizeProcessName(data?.process || process) === normalizedTarget
+  );
+  return match?.[1]?.label || normalizedTarget;
+}
+
+function getFocusDailyProgress(task) {
+  const automation = getDailyAutomation(task);
+  if (!automation) return null;
+
+  const currentSeconds = automation.type === 'app-time'
+    ? getAppSecondsToday(automation.process)
+    : getFocusSecondsToday();
+  const clampedSeconds = Math.min(currentSeconds, automation.targetSeconds);
+  const pct = Math.min(100, Math.round((currentSeconds / automation.targetSeconds) * 100));
+  const trackerReady = state.pcAppTracker.connected && state.pcAppTracker.date === todayStr();
   return {
-    targetSeconds,
-    focusSeconds,
+    ...automation,
+    currentSeconds,
     clampedSeconds,
     pct,
-    label: `${humanizeSeconds(clampedSeconds)} / ${humanizeSeconds(targetSeconds)}`,
+    trackerReady,
+    sourceLabel: automation.type === 'app-time'
+      ? `Time in ${getTrackedAppLabel(automation.process)}`
+      : 'Focus apps',
+    badgeLabel: automation.process || 'focus apps',
+    label: `${humanizeSeconds(clampedSeconds)} / ${humanizeSeconds(automation.targetSeconds)}`,
   };
 }
 
@@ -2186,23 +2238,22 @@ function updateDailyFocusProgressViews() {
 
     const valueEl = taskEl.querySelector('[data-focus-value]');
     const barEl = taskEl.querySelector('[data-focus-bar]');
+    const sourceEl = taskEl.querySelector('[data-focus-source]');
     if (valueEl) valueEl.textContent = progress.label;
     if (barEl) barEl.style.width = `${progress.pct}%`;
+    if (sourceEl) sourceEl.textContent = progress.sourceLabel;
   });
 }
 
 function applyFocusDailyProgress() {
-  const focusSeconds = getFocusSecondsToday();
-  if (focusSeconds <= 0) return false;
-
   const today = todayStr();
   let completedAny = false;
   state.dailyTasks.forEach(task => {
     if (task.completedDate === today) return;
-    const targetSeconds = parseFocusDailyTargetSeconds(task);
-    if (targetSeconds > 0 && focusSeconds >= targetSeconds) {
+    const progress = getFocusDailyProgress(task);
+    if (progress?.trackerReady && progress.currentSeconds >= progress.targetSeconds) {
       completedAny = true;
-      completeDailyTask(task.id, { autoSource: 'focus' });
+      completeDailyTask(task.id, { autoSource: 'app-time' });
     }
   });
   return completedAny;
@@ -2259,6 +2310,8 @@ async function refreshPcAppTracker() {
     };
   }
   renderPcAppTrackerCard();
+  populateDailyAppProcessOptions();
+  updateDailyAutomationAgentStatus();
   const completedAny = applyFocusDailyProgress();
   if (!completedAny) updateDailyFocusProgressViews();
 }
@@ -4147,13 +4200,14 @@ function resetDailyTasksIfNewDay() {
 }
 
 /** Add a new permanent daily quest */
-function addDailyTask(title, desc, difficulty, category) {
+function addDailyTask(title, desc, difficulty, category, automation = null) {
   const task = {
     id:            `daily-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title,
     desc,
     difficulty,
     category,
+    automation:    normalizeDailyAutomation(automation),
     createdAt:     new Date().toISOString(),
     completedDate: null,  // 'YYYY-MM-DD' of last completion
   };
@@ -4193,7 +4247,7 @@ function completeDailyTask(taskId, options = {}) {
   updateDailyProgress();
   updateHeader();
   updateDebtWarning();
-  const sourceLabel = options.autoSource === 'focus' ? 'Focus auto-complete: ' : '';
+  const sourceLabel = options.autoSource === 'app-time' ? 'App time complete: ' : '';
   showToast(`${sourceLabel}+${diff.xp} XP  +${diff.coins} 🪙  "${escapeHtml(task.title)}"`, 'success');
 
   // Check for all-completed bonus
@@ -4283,7 +4337,7 @@ function renderDailyTaskItem(task, today) {
   const focusProgressHtml = focusProgress ? `
         <div class="daily-focus-progress">
           <div class="daily-focus-progress-text">
-            <span>Focus progress</span>
+            <span class="daily-focus-progress-source" data-focus-source>${escapeHtml(focusProgress.sourceLabel)}</span>
             <strong data-focus-value>${focusProgress.label}</strong>
           </div>
           <div class="daily-focus-bar-wrap">
@@ -4295,8 +4349,10 @@ function renderDailyTaskItem(task, today) {
     <div class="task-item${doneToday ? ' done-today' : ''}" data-id="${task.id}">
       ${doneToday
         ? `<div class="task-check checked" title="Done today"></div>`
-        : `<button class="task-check" data-action="complete-daily" data-id="${task.id}"
-             title="Mark as done today" aria-label="Complete today"></button>`
+        : focusProgress
+          ? `<div class="task-check task-check-auto" title="Completed automatically from tracked app time" aria-label="Automatic app-time quest">&#9201;</div>`
+          : `<button class="task-check" data-action="complete-daily" data-id="${task.id}"
+               title="Mark as done today" aria-label="Complete today"></button>`
       }
       <div class="task-content">
         <div class="task-title">${escapeHtml(task.title)}</div>
@@ -4307,7 +4363,7 @@ function renderDailyTaskItem(task, today) {
           <span class="badge badge-${task.difficulty}">${diff.emoji} ${diff.label}</span>
           <span class="xp-reward">+${diff.xp} XP</span>
           <span class="coin-reward">+${diff.coins} 🪙</span>
-          ${focusProgress ? '<span class="badge badge-focus-auto">Auto focus</span>' : ''}
+          ${focusProgress ? `<span class="badge badge-focus-auto">Auto · ${escapeHtml(focusProgress.badgeLabel)}</span>` : ''}
           ${doneToday
             ? `<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--accent-green);border:1px solid rgba(16,185,129,0.25);">✓ Done today</span>`
             : ''
@@ -4339,8 +4395,57 @@ function updateDailyProgress() {
   if (streakEl) streakEl.textContent = `🔥 ${state.dailyStats.dailyStreak}`;
 }
 
+function populateDailyAppProcessOptions() {
+  const datalist = document.getElementById('daily-app-process-options');
+  if (!datalist) return;
+
+  const processes = new Map();
+  const addProcess = (process, label = '') => {
+    const normalized = normalizeProcessName(process);
+    if (!normalized || processes.has(normalized)) return;
+    processes.set(normalized, String(label || normalized));
+  };
+
+  (state.pcAppFocusSettings?.processes || []).forEach(process => addProcess(process));
+  Object.entries(state.pcAppTracker.todayApps || {}).forEach(([process, data]) =>
+    addProcess(data?.process || process, data?.label)
+  );
+  (state.pcAppTracker.top || []).forEach(item => addProcess(item?.process, item?.label));
+  addProcess(state.pcAppTracker.active?.process, state.pcAppTracker.active?.label);
+
+  datalist.innerHTML = Array.from(processes.entries())
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([process, label]) => `<option value="${escapeHtml(process)}">${escapeHtml(label)}</option>`)
+    .join('');
+}
+
+function updateDailyAutomationAgentStatus() {
+  const status = document.getElementById('daily-app-agent-status');
+  if (!status) return;
+  const online = state.pcAppTracker.connected && state.pcAppTracker.date === todayStr();
+  status.classList.toggle('online', online);
+  status.classList.toggle('offline', !online);
+  status.textContent = online
+    ? '● Desktop agent online — today’s foreground time will count automatically.'
+    : '● Desktop agent offline — start it to record progress for this daily.';
+}
+
+function updateDailyCompletionTypeUi() {
+  const typeSelect = document.getElementById('daily-completion-type');
+  const fields = document.getElementById('daily-app-automation');
+  if (!typeSelect || !fields) return;
+  fields.hidden = typeSelect.value !== 'app-time';
+  if (!fields.hidden) {
+    populateDailyAppProcessOptions();
+    updateDailyAutomationAgentStatus();
+  }
+}
+
 /** Initialise the daily quest modal */
 function initDailyModal() {
+  const completionType = document.getElementById('daily-completion-type');
+  if (completionType) completionType.addEventListener('change', updateDailyCompletionTypeUi);
+
   document.querySelectorAll('#daily-difficulty-options .option-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#daily-difficulty-options .option-btn').forEach(b => b.classList.remove('active'));
@@ -4359,6 +4464,8 @@ function initDailyModal() {
 
   document.getElementById('add-daily-btn').addEventListener('click', () => {
     resetDailyForm();
+    populateDailyAppProcessOptions();
+    updateDailyAutomationAgentStatus();
     openModal('daily-modal');
     setTimeout(() => document.getElementById('daily-title').focus(), 100);
   });
@@ -4379,6 +4486,10 @@ function initDailyModal() {
 function resetDailyForm() {
   document.getElementById('daily-title').value = '';
   document.getElementById('daily-desc').value  = '';
+  document.getElementById('daily-completion-type').value = 'manual';
+  document.getElementById('daily-app-process').value = '';
+  document.getElementById('daily-app-minutes').value = '20';
+  updateDailyCompletionTypeUi();
   selectedDailyDifficulty = 'easy';
   selectedDailyCategory   = 'work';
   document.querySelectorAll('#daily-difficulty-options .option-btn').forEach((b, i) =>
@@ -4395,7 +4506,30 @@ function submitDailyTask() {
     return;
   }
   const desc = document.getElementById('daily-desc').value.trim();
-  addDailyTask(title, desc, selectedDailyDifficulty, selectedDailyCategory);
+  const completionType = document.getElementById('daily-completion-type').value;
+  let automation = null;
+  if (completionType === 'app-time') {
+    const processInput = document.getElementById('daily-app-process');
+    const minutesInput = document.getElementById('daily-app-minutes');
+    const process = normalizeProcessName(processInput.value);
+    const minutes = Number(minutesInput.value);
+    if (!process) {
+      processInput.focus();
+      showToast('Enter an app process, for example afterfx.exe.', 'warning');
+      return;
+    }
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440) {
+      minutesInput.focus();
+      showToast('Target time must be between 1 and 1440 minutes.', 'warning');
+      return;
+    }
+    automation = {
+      type: 'app-time',
+      process,
+      targetSeconds: Math.round(minutes * 60),
+    };
+  }
+  addDailyTask(title, desc, selectedDailyDifficulty, selectedDailyCategory, automation);
   closeModal('daily-modal');
 }
 

@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260714-app-dailies">
 </head>
 <body>
 
@@ -701,6 +701,26 @@
           <textarea class="form-input form-textarea" id="daily-desc" placeholder="Optional description…" maxlength="300"></textarea>
         </div>
         <div class="form-group">
+          <label class="form-label" for="daily-completion-type">Completion</label>
+          <select class="form-input" id="daily-completion-type">
+            <option value="manual">Manual check-off</option>
+            <option value="app-time">Time in a desktop app</option>
+          </select>
+        </div>
+        <div class="daily-app-automation" id="daily-app-automation" hidden>
+          <div class="form-group">
+            <label class="form-label" for="daily-app-process">App process *</label>
+            <input class="form-input" type="text" id="daily-app-process" list="daily-app-process-options" placeholder="afterfx.exe" autocomplete="off" spellcheck="false">
+            <datalist id="daily-app-process-options"></datalist>
+            <span class="form-hint">Choose a detected process or enter its .exe name.</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="daily-app-minutes">Target minutes *</label>
+            <input class="form-input" type="number" id="daily-app-minutes" min="1" max="1440" step="1" value="20" inputmode="numeric">
+          </div>
+          <div class="daily-app-agent-status" id="daily-app-agent-status"></div>
+        </div>
+        <div class="form-group">
           <label class="form-label">Difficulty</label>
           <div class="option-grid" id="daily-difficulty-options">
             <button class="option-btn active" data-value="easy">🟢 Easy<small>10 XP · 5 🪙</small></button>
@@ -1139,6 +1159,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=20260714-app-dailies"></script>
 </body>
 </html>
