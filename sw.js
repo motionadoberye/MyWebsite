@@ -3,12 +3,12 @@
  * Offline support + installable PWA
  * ========================================== */
 
-const CACHE_VERSION = 'qm-v3-app-cycle';
+const CACHE_VERSION = 'qm-v4-cycle-sync';
 const APP_SHELL = [
   './',
   './index.html',
-  './app.js?v=20260714-app-cycle',
-  './style.css?v=20260714-app-cycle',
+  './app.js?v=20260715-cycle-sync',
+  './style.css?v=20260715-cycle-sync',
   './manifest.webmanifest',
   './icons/icon.svg',
   './questlife-extension/icons/icon16.png',

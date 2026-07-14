@@ -2066,10 +2066,10 @@ function sumFocusSecondsFromAppStats(apps, top) {
   }, 0);
 }
 
-function getFocusSecondsToday() {
+function getFocusSecondsCurrentCycle() {
   const tracker = state.pcAppTracker;
   if (!tracker.connected || tracker.date !== todayStr()) return 0;
-  return sumFocusSecondsFromAppStats(tracker.todayApps || {}, []);
+  return sumFocusSecondsFromAppStats(tracker.apps || {}, tracker.top || []);
 }
 
 function getFocusSecondsDisplayedWindow() {
@@ -2179,12 +2179,12 @@ function getDailyAutomation(task) {
     : null;
 }
 
-function getAppSecondsToday(processName) {
+function getAppSecondsCurrentCycle(processName) {
   const tracker = state.pcAppTracker;
   const normalizedTarget = normalizeProcessName(processName);
   if (!normalizedTarget || !tracker.connected || tracker.date !== todayStr()) return 0;
 
-  return Object.entries(tracker.todayApps || {}).reduce((total, [process, data]) => {
+  return Object.entries(tracker.apps || {}).reduce((total, [process, data]) => {
     const normalized = normalizeProcessName(data?.process || process);
     return normalized === normalizedTarget ? total + (Number(data?.seconds) || 0) : total;
   }, 0);
@@ -2194,6 +2194,7 @@ function getTrackedAppLabel(processName) {
   const normalizedTarget = normalizeProcessName(processName);
   const tracker = state.pcAppTracker;
   const entries = [
+    ...Object.entries(tracker.apps || {}),
     ...Object.entries(tracker.todayApps || {}),
     ...(tracker.top || []).map(item => [item.process, item]),
   ];
@@ -2208,8 +2209,8 @@ function getFocusDailyProgress(task) {
   if (!automation) return null;
 
   const currentSeconds = automation.type === 'app-time'
-    ? getAppSecondsToday(automation.process)
-    : getFocusSecondsToday();
+    ? getAppSecondsCurrentCycle(automation.process)
+    : getFocusSecondsCurrentCycle();
   const clampedSeconds = Math.min(currentSeconds, automation.targetSeconds);
   const pct = Math.min(100, Math.round((currentSeconds / automation.targetSeconds) * 100));
   const trackerReady = state.pcAppTracker.connected && state.pcAppTracker.date === todayStr();
@@ -4499,6 +4500,9 @@ function populateDailyAppProcessOptions() {
   };
 
   (state.pcAppFocusSettings?.processes || []).forEach(process => addProcess(process));
+  Object.entries(state.pcAppTracker.apps || {}).forEach(([process, data]) =>
+    addProcess(data?.process || process, data?.label)
+  );
   Object.entries(state.pcAppTracker.todayApps || {}).forEach(([process, data]) =>
     addProcess(data?.process || process, data?.label)
   );
@@ -4518,7 +4522,7 @@ function updateDailyAutomationAgentStatus() {
   status.classList.toggle('online', online);
   status.classList.toggle('offline', !online);
   status.textContent = online
-    ? '● Desktop agent online — today’s foreground time will count automatically.'
+    ? '● Desktop agent online — foreground time in the current 03:00–03:00 cycle will count automatically.'
     : '● Desktop agent offline — start it to record progress for this daily.';
 }
 
