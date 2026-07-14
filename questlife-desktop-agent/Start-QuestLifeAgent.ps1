@@ -26,6 +26,7 @@ function Read-AgentConfig {
   $fallback = [ordered]@{
     port = 17321
     pollIntervalMs = 1000
+    statsResetHour = 3
     trackedApps = @()
   }
   if (-not (Test-Path -LiteralPath $Path)) { return $fallback }
@@ -34,6 +35,7 @@ function Read-AgentConfig {
     return [ordered]@{
       port = if ($json.port) { [int]$json.port } else { 17321 }
       pollIntervalMs = if ($json.pollIntervalMs) { [int]$json.pollIntervalMs } else { 1000 }
+      statsResetHour = if ($null -ne $json.statsResetHour) { [int]$json.statsResetHour } else { 3 }
       trackedApps = @($json.trackedApps)
     }
   } catch {
@@ -69,6 +71,7 @@ namespace QuestLifeNative {
 $config = Read-AgentConfig -Path $ConfigPath
 $port = [int]$config.port
 $pollIntervalMs = [Math]::Max(250, [int]$config.pollIntervalMs)
+$statsResetHour = [Math]::Min(23, [Math]::Max(0, [int]$config.statsResetHour))
 
 $trackedApps = @{}
 foreach ($app in @($config.trackedApps)) {
@@ -90,6 +93,14 @@ $script:lastSnapshotAt = [DateTime]::MinValue
 $script:historyBuckets = @{}
 $dataDir = Join-Path $PSScriptRoot 'data'
 $snapshotPath = Join-Path $dataDir 'app-time.json'
+
+function Get-StatsCycleStart {
+  param([DateTime]$At = (Get-Date))
+  $localAt = $At.ToLocalTime()
+  $cycleStart = $localAt.Date.AddHours($statsResetHour)
+  if ($localAt -lt $cycleStart) { $cycleStart = $cycleStart.AddDays(-1) }
+  return $cycleStart
+}
 
 function Get-HistoryBucketKey {
   param([DateTime]$At)
@@ -340,12 +351,16 @@ function Sample-ForegroundApp {
 }
 
 function Build-WindowStatsPayload {
-  param([int]$Hours = 48)
+  param([int]$Hours = 24)
 
   Prune-HistoryBuckets -RetentionHours ([Math]::Max($Hours + 24, 72))
 
   $nowUtc = (Get-Date).ToUniversalTime()
-  $cutoffUtc = $nowUtc.AddHours(-$Hours)
+  $rollingCutoffUtc = $nowUtc.AddHours(-$Hours)
+  $cycleStartLocal = Get-StatsCycleStart
+  $cycleStartUtc = $cycleStartLocal.ToUniversalTime()
+  $nextResetUtc = $cycleStartLocal.AddDays(1).ToUniversalTime()
+  $cutoffUtc = if ($cycleStartUtc -gt $rollingCutoffUtc) { $cycleStartUtc } else { $rollingCutoffUtc }
   $aggregateApps = [ordered]@{}
 
   foreach ($bucket in @($script:historyBuckets.Values)) {
@@ -442,8 +457,10 @@ function Build-WindowStatsPayload {
 
   return [ordered]@{
     hours = $Hours
+    resetHour = $statsResetHour
     since = $cutoffUtc.ToString('o')
     until = $nowUtc.ToString('o')
+    nextResetAt = $nextResetUtc.ToString('o')
     apps = $apps
     categories = $categories
     totalSeconds = [int][Math]::Floor($totalSeconds)
@@ -453,7 +470,7 @@ function Build-WindowStatsPayload {
 }
 
 function Build-StatsPayload {
-  $window48 = Build-WindowStatsPayload -Hours 48
+  $window24 = Build-WindowStatsPayload -Hours 24
   $apps = [ordered]@{}
   $categories = [ordered]@{}
   $trackedSeconds = 0.0
@@ -508,10 +525,12 @@ function Build-StatsPayload {
     totalSeconds = [int][Math]::Floor($script:totalAllTime)
     trackedSeconds = [int][Math]::Floor($trackedSeconds)
     top = $top
-    window48 = $window48
+    window24 = $window24
+    window48 = $window24
     historyBuckets = @($script:historyBuckets.Values)
     config = [ordered]@{
       pollIntervalMs = $pollIntervalMs
+      statsResetHour = $statsResetHour
       trackedCount = $trackedApps.Count
     }
   }

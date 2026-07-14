@@ -267,7 +267,10 @@ let state = {
     totalSeconds:   0,
     trackedSeconds: 0,
     top:            [],
-    displayWindowHours: 48,
+    displayWindowHours: 24,
+    statsResetHour: 3,
+    cycleSince:     null,
+    nextResetAt:    null,
     todayApps:      {},
     todayCategories:{},
     todayTotalSeconds: 0,
@@ -2259,10 +2262,91 @@ function applyFocusDailyProgress() {
   return completedAny;
 }
 
+function getPcAppCycleStart(now = new Date(), resetHour = 3) {
+  const safeResetHour = Math.min(23, Math.max(0, Number(resetHour) || 0));
+  const cycleStart = new Date(now);
+  cycleStart.setHours(safeResetHour, 0, 0, 0);
+  if (now < cycleStart) cycleStart.setDate(cycleStart.getDate() - 1);
+  return cycleStart;
+}
+
+function buildPcAppCycleWindow(historyBuckets, resetHour = 3, now = new Date()) {
+  if (!Array.isArray(historyBuckets) || historyBuckets.length === 0) return null;
+
+  const cycleStart = getPcAppCycleStart(now, resetHour);
+  const apps = {};
+
+  historyBuckets.forEach(bucket => {
+    const bucketStart = new Date(bucket?.bucketStart || '');
+    if (Number.isNaN(bucketStart.getTime()) || bucketStart < cycleStart || bucketStart > now) return;
+
+    Object.entries(bucket?.apps || {}).forEach(([key, data]) => {
+      const process = normalizeProcessName(data?.process || key) || String(key).toLowerCase();
+      const seconds = Number(data?.seconds) || 0;
+      if (!process || seconds <= 0) return;
+
+      if (!apps[process]) {
+        apps[process] = {
+          process,
+          label: data?.label || process,
+          category: data?.category || 'other',
+          isTracked: !!data?.isTracked,
+          seconds: 0,
+          lastTitle: '',
+          lastSeenAt: null,
+        };
+      }
+
+      const target = apps[process];
+      target.seconds += seconds;
+      target.isTracked = target.isTracked || !!data?.isTracked;
+      const incomingLastSeen = data?.lastSeenAt || bucket?.bucketStart || null;
+      if (incomingLastSeen && (!target.lastSeenAt || Date.parse(incomingLastSeen) > Date.parse(target.lastSeenAt))) {
+        target.lastSeenAt = incomingLastSeen;
+        target.lastTitle = data?.lastTitle || '';
+        target.label = data?.label || target.label;
+        target.category = data?.category || target.category;
+      }
+    });
+  });
+
+  const categories = {};
+  let totalSeconds = 0;
+  let trackedSeconds = 0;
+  Object.values(apps).forEach(app => {
+    app.seconds = Math.floor(app.seconds);
+    totalSeconds += app.seconds;
+    categories[app.category] = (categories[app.category] || 0) + app.seconds;
+    if (app.isTracked) trackedSeconds += app.seconds;
+  });
+
+  const top = Object.values(apps)
+    .filter(app => app.seconds > 0)
+    .sort((a, b) => b.seconds - a.seconds)
+    .slice(0, 20);
+  const nextReset = new Date(cycleStart);
+  nextReset.setDate(nextReset.getDate() + 1);
+
+  return {
+    hours: 24,
+    resetHour: Math.min(23, Math.max(0, Number(resetHour) || 0)),
+    since: cycleStart.toISOString(),
+    until: now.toISOString(),
+    nextResetAt: nextReset.toISOString(),
+    apps,
+    categories,
+    totalSeconds,
+    trackedSeconds,
+    top,
+  };
+}
+
 function normalizePcAppTrackerPayload(payload) {
   const today = payload && payload.today ? payload.today : {};
-  const windowData = payload?.window48 || payload?.window || {};
-  const hasWindowData = !!payload?.window48 || !!payload?.window;
+  const resetHour = Number(payload?.window24?.resetHour ?? payload?.config?.statsResetHour ?? 3);
+  const clientCycleWindow = buildPcAppCycleWindow(payload?.historyBuckets, resetHour);
+  const windowData = payload?.window24 || clientCycleWindow || payload?.window48 || payload?.window || {};
+  const hasWindowData = !!payload?.window24 || !!clientCycleWindow || !!payload?.window48 || !!payload?.window;
   const apps = windowData.apps || today.apps || payload?.apps || {};
   const top = Array.isArray(windowData.top)
     ? windowData.top
@@ -2282,14 +2366,17 @@ function normalizePcAppTrackerPayload(payload) {
     active:         payload?.active || null,
     apps,
     categories:     windowData.categories || today.categories || payload?.categories || {},
-    totalSeconds:   Number(windowData.totalSeconds || today.totalSeconds || payload?.totalSeconds || 0),
-    trackedSeconds: Number(windowData.trackedSeconds || today.trackedSeconds || payload?.trackedSeconds || 0),
+    totalSeconds:   Number(windowData.totalSeconds ?? today.totalSeconds ?? payload?.totalSeconds ?? 0),
+    trackedSeconds: Number(windowData.trackedSeconds ?? today.trackedSeconds ?? payload?.trackedSeconds ?? 0),
     top,
-    displayWindowHours: Number(windowData.hours || (hasWindowData ? 48 : 24)),
+    displayWindowHours: Number(windowData.hours || 24),
+    statsResetHour: Number(windowData.resetHour ?? resetHour),
+    cycleSince:     windowData.since || null,
+    nextResetAt:    windowData.nextResetAt || null,
     todayApps:      today.apps || {},
     todayCategories: today.categories || {},
-    todayTotalSeconds: Number(today.totalSeconds || 0),
-    todayTrackedSeconds: Number(today.trackedSeconds || 0),
+    todayTotalSeconds: Number(today.totalSeconds ?? 0),
+    todayTrackedSeconds: Number(today.trackedSeconds ?? 0),
     lastSeenAt:     Date.now(),
     error:          null,
   };
@@ -2334,6 +2421,7 @@ function renderPcAppTrackerCard() {
   const trackedEl = document.getElementById('pc-app-tracked-total');
   const focusEl = document.getElementById('pc-app-focus-total');
   const activeEl = document.getElementById('pc-app-active');
+  const cycleEl = document.getElementById('pc-app-cycle');
   const container = document.getElementById('pc-app-breakdown');
   renderFocusAppSettings();
   if (!container) return;
@@ -2345,6 +2433,10 @@ function renderPcAppTrackerCard() {
   if (totalEl) totalEl.textContent = humanizeSeconds(tracker.totalSeconds || 0);
   if (trackedEl) trackedEl.textContent = humanizeSeconds(tracker.trackedSeconds || 0);
   if (focusEl) focusEl.textContent = humanizeSeconds(getFocusSecondsDisplayedWindow());
+  if (cycleEl) {
+    const resetHour = String(tracker.statsResetHour ?? 3).padStart(2, '0');
+    cycleEl.textContent = `Цикл ${resetHour}:00–${resetHour}:00`;
+  }
 
   if (!tracker.connected) {
     if (activeEl) activeEl.textContent = 'Desktop agent offline';
@@ -2365,7 +2457,7 @@ function renderPcAppTrackerCard() {
     .slice(0, 8);
 
   if (entries.length === 0) {
-    container.innerHTML = '<div class="pc-app-empty">За последние 48 часов ещё нет времени в приложениях.</div>';
+    container.innerHTML = '<div class="pc-app-empty">В текущем 24-часовом цикле ещё нет времени в приложениях.</div>';
     return;
   }
 

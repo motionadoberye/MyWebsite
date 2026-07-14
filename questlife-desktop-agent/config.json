@@ -1,6 +1,7 @@
 {
   "port": 17321,
   "pollIntervalMs": 1000,
+  "statsResetHour": 3,
   "trackedApps": [
     { "process": "steam.exe", "label": "Steam", "category": "games" },
     { "process": "steamwebhelper.exe", "label": "Steam", "category": "games" },

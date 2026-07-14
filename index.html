@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20260714-app-dailies">
+  <link rel="stylesheet" href="style.css?v=20260714-app-cycle">
 </head>
 <body>
 
@@ -409,24 +409,25 @@
         <div class="stat-card">
           <div class="stat-icon">🎮</div>
           <div class="stat-value" id="pc-app-tracked-total">0с</div>
-          <div class="stat-label">Tracked Apps 48h</div>
+          <div class="stat-label">Tracked Apps 24h</div>
         </div>
         <div class="stat-card">
           <div class="stat-icon">⏱️</div>
           <div class="stat-value" id="pc-app-total">0с</div>
-          <div class="stat-label">Total App Time 48h</div>
+          <div class="stat-label">Total App Time 24h</div>
         </div>
         <div class="stat-card">
           <div class="stat-icon">F</div>
           <div class="stat-value" id="pc-app-focus-total">0с</div>
-          <div class="stat-label">Focus 48h</div>
+          <div class="stat-label">Focus 24h</div>
         </div>
       </div>
 
       <div class="card" style="margin-top: 1.5rem;">
         <div class="pc-app-header">
-          <h3 class="card-title" style="margin-bottom:0;">Активность за 48 часов</h3>
+          <h3 class="card-title" style="margin-bottom:0;">Активность за 24 часа</h3>
           <div class="pc-app-totals">
+            <span id="pc-app-cycle">Сброс ежедневно в 03:00</span>
             <span id="pc-app-active">Нет данных</span>
           </div>
         </div>
@@ -1159,6 +1160,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260714-app-dailies"></script>
+  <script src="app.js?v=20260714-app-cycle"></script>
 </body>
 </html>

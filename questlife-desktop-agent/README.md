@@ -18,9 +18,10 @@ Edit `config.json` and add process names to `trackedApps`.
 
 The agent still records all foreground apps it sees, but `trackedApps` decides what counts toward the highlighted "games/tracked" total in QuestLife.
 
+The Apps dashboard uses a 24-hour cycle that resets every day at 03:00 local time. Change `statsResetHour` in `config.json` if you want a different reset hour.
+
 ## Test
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Start-QuestLifeAgent.ps1 -Once
 ```
-
