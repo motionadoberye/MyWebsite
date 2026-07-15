@@ -97,6 +97,8 @@ const INFLATION_INCREMENT  = 0.5;  // Price multiplier added per cheat-penalty p
 const MS_PER_DAY           = 86400000; // Milliseconds in one day
 const PC_APP_TRACKER_URL   = 'http://127.0.0.1:17321/stats';
 const PC_APP_TRACKER_POLL_MS = 5000;
+const DAILY_RESET_HOUR     = 3;
+const DAILY_CYCLE_VERSION  = 2;
 const XP_LEVEL_BASE        = 100;
 const XP_LEVEL_GROWTH      = 1.25;
 const LEVEL_COIN_BASE      = 5;
@@ -136,11 +138,12 @@ let state = {
   activityLog:  {},  // { "YYYY-MM-DD": completedCount }
   dailyTasks:   [],  // recurring daily quest objects
   dailyStats: {
-    lastResetDate:        null,  // 'YYYY-MM-DD' — last day we reset completion flags
+    cycleVersion:         null,  // migration marker for the 03:00-03:00 daily cycle
+    lastResetCycle:       null,  // 'YYYY-MM-DD' identifying the cycle that began at 03:00
     dailyStreak:          0,     // consecutive days with all daily tasks completed
     dailyBestStreak:      0,
-    lastAllCompletedDate: null,  // 'YYYY-MM-DD' when all dailies were last completed
-    lastBonusDate:        null,  // 'YYYY-MM-DD' to prevent double bonus
+    lastAllCompletedCycle: null, // cycle key when all dailies were last completed
+    lastBonusCycle:       null,  // cycle key to prevent double bonus
   },
   activeTimers: [],  // countdown timers for timed rewards
   // ── Psychological mechanics ──
@@ -500,13 +503,29 @@ function addXP(amount) {
 // Date Utilities
 // ==========================================
 
-/** Today's date string in YYYY-MM-DD format (UTC-stable via local) */
-function todayStr() {
-  const d = new Date();
+/** Format a local Date as YYYY-MM-DD. */
+function localDateStr(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/** Today's date string in YYYY-MM-DD format (UTC-stable via local). */
+function todayStr() {
+  return localDateStr(new Date());
+}
+
+/**
+ * Key for the current Daily cycle. A cycle starts at 03:00 local time and
+ * keeps the date on which it started, so 02:59 still belongs to yesterday.
+ */
+function dailyCycleKey(now = new Date()) {
+  const cycleDate = new Date(now);
+  if (cycleDate.getHours() < DAILY_RESET_HOUR) {
+    cycleDate.setDate(cycleDate.getDate() - 1);
+  }
+  return localDateStr(cycleDate);
 }
 
 /** Get an array of the last N day strings, oldest first */
@@ -2250,10 +2269,11 @@ function updateDailyFocusProgressViews() {
 }
 
 function applyFocusDailyProgress() {
-  const today = todayStr();
+  resetDailyTasksIfNewCycle();
+  const cycleKey = dailyCycleKey();
   let completedAny = false;
   state.dailyTasks.forEach(task => {
-    if (task.completedDate === today) return;
+    if (task.completedCycle === cycleKey) return;
     const progress = getFocusDailyProgress(task);
     if (progress?.trackerReady && progress.currentSeconds >= progress.targetSeconds) {
       completedAny = true;
@@ -2384,6 +2404,7 @@ function normalizePcAppTrackerPayload(payload) {
 }
 
 async function refreshPcAppTracker() {
+  const dailyCycleReset = resetDailyTasksIfNewCycle();
   try {
     const res = await fetch(PC_APP_TRACKER_URL, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2401,7 +2422,12 @@ async function refreshPcAppTracker() {
   populateDailyAppProcessOptions();
   updateDailyAutomationAgentStatus();
   const completedAny = applyFocusDailyProgress();
-  if (!completedAny) updateDailyFocusProgressViews();
+  if (dailyCycleReset && !completedAny) {
+    renderDailyTasks();
+    updateDailyProgress();
+  } else if (!completedAny) {
+    updateDailyFocusProgressViews();
+  }
 }
 
 function initPcAppTracker() {
@@ -4282,14 +4308,23 @@ function renderTimers() {
 let selectedDailyDifficulty = 'easy';
 let selectedDailyCategory   = 'work';
 
-/** Reset daily task completion flags when a new day is detected */
-function resetDailyTasksIfNewDay() {
-  const today = todayStr();
-  if (state.dailyStats.lastResetDate !== today) {
-    state.dailyTasks.forEach(t => { t.completedDate = null; });
-    state.dailyStats.lastResetDate = today;
-    saveState();
-  }
+/** Reset completion flags when a new 03:00-03:00 Daily cycle is detected. */
+function resetDailyTasksIfNewCycle(now = new Date()) {
+  const cycleKey = dailyCycleKey(now);
+  const needsMigration = state.dailyStats.cycleVersion !== DAILY_CYCLE_VERSION;
+  if (!needsMigration && state.dailyStats.lastResetCycle === cycleKey) return false;
+
+  state.dailyTasks.forEach(task => {
+    task.completedCycle = null;
+    task.completedDate = null; // remove the legacy midnight-based marker
+  });
+  state.dailyStats.cycleVersion = DAILY_CYCLE_VERSION;
+  state.dailyStats.lastResetCycle = cycleKey;
+  delete state.dailyStats.lastResetDate;
+  delete state.dailyStats.lastAllCompletedDate;
+  delete state.dailyStats.lastBonusDate;
+  saveState();
+  return true;
 }
 
 /** Add a new permanent daily quest */
@@ -4302,7 +4337,7 @@ function addDailyTask(title, desc, difficulty, category, automation = null) {
     category,
     automation:    normalizeDailyAutomation(automation),
     createdAt:     new Date().toISOString(),
-    completedDate: null,  // 'YYYY-MM-DD' of last completion
+    completedCycle: null, // 'YYYY-MM-DD' key of the last 03:00-03:00 completion
   };
   state.dailyTasks.unshift(task);
   saveState();
@@ -4311,15 +4346,16 @@ function addDailyTask(title, desc, difficulty, category, automation = null) {
   showToast('Daily quest added! 📅', 'info');
 }
 
-/** Mark a daily task as done today */
+/** Mark a daily task as done in the current 03:00-03:00 cycle. */
 function completeDailyTask(taskId, options = {}) {
+  resetDailyTasksIfNewCycle();
   const task = state.dailyTasks.find(t => t.id === taskId);
   if (!task) return;
 
-  const today = todayStr();
-  if (task.completedDate === today) return;  // already done today
+  const cycleKey = dailyCycleKey();
+  if (task.completedCycle === cycleKey) return;
 
-  task.completedDate = today;
+  task.completedCycle = cycleKey;
 
   // Award XP and coins
   const diff          = DIFFICULTY[task.difficulty];
@@ -4332,7 +4368,7 @@ function completeDailyTask(taskId, options = {}) {
   checkDebtPayoff(previousCoins);
 
   // Record in activity log
-  state.activityLog[today] = (state.activityLog[today] || 0) + 1;
+  state.activityLog[cycleKey] = (state.activityLog[cycleKey] || 0) + 1;
   recalcStreak();
 
   saveState();
@@ -4356,24 +4392,24 @@ function deleteDailyTask(taskId) {
   updateDailyProgress();
 }
 
-/** If all daily tasks are completed today, award bonus coins (once per day) */
+/** If all dailies are complete, award the bonus once per 03:00-03:00 cycle. */
 function checkDailyCompletionBonus() {
   if (state.dailyTasks.length === 0) return;
-  const today   = todayStr();
-  const allDone = state.dailyTasks.every(t => t.completedDate === today);
+  const cycleKey = dailyCycleKey();
+  const allDone = state.dailyTasks.every(t => t.completedCycle === cycleKey);
 
-  if (allDone && state.dailyStats.lastBonusDate !== today) {
-    state.dailyStats.lastBonusDate = today;
+  if (allDone && state.dailyStats.lastBonusCycle !== cycleKey) {
+    state.dailyStats.lastBonusCycle = cycleKey;
 
     const bonus = 50;
     state.userStats.coins            += bonus;
     state.userStats.totalCoinsEarned += bonus;
 
     // Update daily all-completed streak
-    const last = state.dailyStats.lastAllCompletedDate;
+    const last = state.dailyStats.lastAllCompletedCycle;
     if (last) {
       const diffDays = Math.round(
-        (new Date(today) - new Date(last)) / MS_PER_DAY
+        (new Date(cycleKey) - new Date(last)) / MS_PER_DAY
       );
       state.dailyStats.dailyStreak = diffDays === 1
         ? state.dailyStats.dailyStreak + 1
@@ -4381,7 +4417,7 @@ function checkDailyCompletionBonus() {
     } else {
       state.dailyStats.dailyStreak = 1;
     }
-    state.dailyStats.lastAllCompletedDate = today;
+    state.dailyStats.lastAllCompletedCycle = cycleKey;
     if (state.dailyStats.dailyStreak > state.dailyStats.dailyBestStreak) {
       state.dailyStats.dailyBestStreak = state.dailyStats.dailyStreak;
     }
@@ -4408,9 +4444,9 @@ function renderDailyTasks() {
     return;
   }
 
-  const today = todayStr();
+  const cycleKey = dailyCycleKey();
   container.innerHTML = state.dailyTasks
-    .map(task => renderDailyTaskItem(task, today))
+    .map(task => renderDailyTaskItem(task, cycleKey))
     .join('');
 
   container.querySelectorAll('[data-action="complete-daily"]').forEach(btn => {
@@ -4422,10 +4458,10 @@ function renderDailyTasks() {
 }
 
 /** Build HTML for a single daily task card */
-function renderDailyTaskItem(task, today) {
+function renderDailyTaskItem(task, cycleKey) {
   const diff      = DIFFICULTY[task.difficulty];
   const cat       = CATEGORY[task.category];
-  const doneToday = task.completedDate === today;
+  const doneToday = task.completedCycle === cycleKey;
   const focusProgress = getFocusDailyProgress(task);
   const focusProgressHtml = focusProgress ? `
         <div class="daily-focus-progress">
@@ -4473,8 +4509,8 @@ function renderDailyTaskItem(task, today) {
 /** Update the daily progress bar + streak badge */
 function updateDailyProgress() {
   const total   = state.dailyTasks.length;
-  const today   = todayStr();
-  const done    = state.dailyTasks.filter(t => t.completedDate === today).length;
+  const cycleKey = dailyCycleKey();
+  const done    = state.dailyTasks.filter(t => t.completedCycle === cycleKey).length;
   const pct     = total > 0 ? Math.round((done / total) * 100) : 0;
 
   const doneEl   = document.getElementById('daily-done-count');
@@ -6015,7 +6051,7 @@ function initBlockedSitesUI() {
 
 function init() {
   loadState();
-  resetDailyTasksIfNewDay();     // Check and reset daily tasks if a new day has begun
+  resetDailyTasksIfNewCycle();   // Reset recurring tasks at the 03:00 cycle boundary
   checkInflationReset();         // Reset inflation if date has changed
   checkDailyDiscountReset();     // Reset daily first-purchase discount if new day
   checkCreditLimitReset();       // Reset daily credit counter if new day
